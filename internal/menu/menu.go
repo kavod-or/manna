@@ -27,6 +27,7 @@ type Config struct {
 }
 
 type Conference struct {
+	Currency      Currency  `yaml:"currency"`
 	Payment       Localized `yaml:"payment"`
 	Languages     []string  `yaml:"languages"`
 	SeriousMode   bool      `yaml:"serious_mode"`
@@ -35,6 +36,13 @@ type Conference struct {
 	Logo          string    `yaml:"logo"`
 	Name          Localized `yaml:"name"`
 	Location      Localized `yaml:"location"`
+}
+
+func (conference Conference) EffectiveCurrency() Currency {
+	if conference.Currency == "" {
+		return Euro
+	}
+	return conference.Currency
 }
 
 type Permanent struct {
@@ -107,6 +115,9 @@ func Decode(reader io.Reader) (Config, error) {
 }
 
 func (config Config) Validate() error {
+	if err := validateCurrency(config.Conference.Currency); err != nil {
+		return err
+	}
 	if _, err := time.LoadLocation(config.Conference.Zone()); err != nil {
 		return fmt.Errorf("conference.timezone: %w", err)
 	}
@@ -235,6 +246,15 @@ func (config Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateCurrency(currency Currency) error {
+	switch currency {
+	case "", Euro, Dollar, Schekel:
+		return nil
+	default:
+		return fmt.Errorf("conference.currency must be euro, dollar, or schekel")
+	}
 }
 
 func validateLogo(filename string) error {

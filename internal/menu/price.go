@@ -9,14 +9,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Price stores euro cents exactly, without floating-point rounding.
+// Price stores the smallest currency unit exactly, without floating-point rounding.
 type Price int64
+
+type Currency string
+
+const (
+	Euro    Currency = "euro"
+	Dollar  Currency = "dollar"
+	Schekel Currency = "schekel"
+)
 
 var pricePattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]{1,2})?$`)
 
 func (price *Price) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.ScalarNode || !pricePattern.MatchString(node.Value) {
-		return fmt.Errorf("line %d: price must be a non-negative euro amount with at most two decimal places", node.Line)
+		return fmt.Errorf("line %d: price must be a non-negative amount with at most two decimal places", node.Line)
 	}
 	parts := strings.SplitN(node.Value, ".", 2)
 	fraction := "00"
@@ -32,23 +40,43 @@ func (price *Price) UnmarshalYAML(node *yaml.Node) error {
 }
 
 func (price Price) German() string {
-	return price.format(".", ",") + "\u00a0€"
+	return price.localized("de", Euro)
 }
 
 func (price Price) English() string {
-	return "€" + price.format(",", ".")
+	return price.localized("en", Euro)
 }
 
-func (price Price) Localized(language string) string {
+func (price Price) Localized(language string, configured ...Currency) string {
+	currency := Euro
+	if len(configured) > 0 && configured[0] != "" {
+		currency = configured[0]
+	}
+	return price.localized(language, currency)
+}
+
+func (price Price) localized(language string, currency Currency) string {
+	symbol := currency.Symbol()
 	switch strings.SplitN(language, "-", 2)[0] {
 	case "fr":
-		return price.format("\u202f", ",") + "\u00a0€"
+		return price.format("\u202f", ",") + "\u00a0" + symbol
 	case "ru":
-		return price.format("\u00a0", ",") + "\u00a0€"
+		return price.format("\u00a0", ",") + "\u00a0" + symbol
 	case "de", "es", "it", "nl", "pt":
-		return price.German()
+		return price.format(".", ",") + "\u00a0" + symbol
 	default:
-		return price.English()
+		return symbol + price.format(",", ".")
+	}
+}
+
+func (currency Currency) Symbol() string {
+	switch currency {
+	case Dollar:
+		return "$"
+	case Schekel:
+		return "₪"
+	default:
+		return "€"
 	}
 }
 

@@ -226,6 +226,58 @@ func TestOptionalPrices(t *testing.T) {
 	}
 }
 
+func TestCurrencyFormatting(t *testing.T) {
+	price := Price(123450)
+	for _, test := range []struct {
+		currency Currency
+		language string
+		want     string
+	}{
+		{Euro, "en", "€1,234.50"},
+		{Dollar, "en", "$1,234.50"},
+		{Schekel, "en", "₪1,234.50"},
+		{Dollar, "de", "1.234,50\u00a0$"},
+		{Schekel, "fr", "1\u202f234,50\u00a0₪"},
+		{Schekel, "he", "₪1,234.50"},
+	} {
+		if got := price.Localized(test.language, test.currency); got != test.want {
+			t.Errorf("Localized(%q, %q) = %q, want %q", test.language, test.currency, got, test.want)
+		}
+	}
+	if got := price.Localized("en"); got != "€1,234.50" {
+		t.Errorf("default currency = %q", got)
+	}
+}
+
+func TestConferenceCurrency(t *testing.T) {
+	for _, test := range []struct {
+		configured string
+		want       Currency
+	}{
+		{"", Euro},
+		{"euro", Euro},
+		{"dollar", Dollar},
+		{"schekel", Schekel},
+	} {
+		source := validMenu
+		if test.configured != "" {
+			source = strings.Replace(source, "conference:", "conference:\n  currency: "+test.configured, 1)
+		}
+		config, err := Decode(strings.NewReader(source))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := config.Conference.EffectiveCurrency(); got != test.want {
+			t.Errorf("currency %q decoded as %q, want %q", test.configured, got, test.want)
+		}
+	}
+
+	invalid := strings.Replace(validMenu, "conference:", "conference:\n  currency: pounds", 1)
+	if _, err := Decode(strings.NewReader(invalid)); err == nil {
+		t.Fatal("accepted unsupported conference currency")
+	}
+}
+
 func TestCoffeeItems(t *testing.T) {
 	source := strings.Replace(validMenu, "  drinks:", "  coffee:\n    - id: espresso\n      price: 2.00\n      name: {de: Espresso, en: Espresso}\n  drinks:", 1)
 	config, err := Decode(strings.NewReader(source))

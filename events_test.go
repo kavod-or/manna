@@ -2,6 +2,7 @@ package main
 
 import (
 	"io/fs"
+	"mana/internal/menu"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,6 +34,12 @@ func TestEmbeddedEvents(t *testing.T) {
 	}
 	if first.Conference.Name.EN == second.Conference.Name.EN {
 		t.Fatal("events share menu")
+	}
+	if first.Conference.EffectiveCurrency() != menu.Dollar {
+		t.Fatalf("example conference currency = %q, want dollar", first.Conference.EffectiveCurrency())
+	}
+	if second.Conference.EffectiveCurrency() != menu.Schekel {
+		t.Fatalf("community day currency = %q, want schekel", second.Conference.EffectiveCurrency())
 	}
 }
 

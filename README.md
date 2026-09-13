@@ -93,6 +93,7 @@ Then create `content/team-day.yaml`:
 
 ```yaml
 conference:
+  currency: euro
   languages: [de, en]
   timezone: Europe/Berlin
   name: {de: Teamtag, en: Team Day}
@@ -372,7 +373,7 @@ Add `price` to an individual meal item or a permanent coffee/drink/snack in the 
       name: {de: Gemüse-Curry, en: Vegetable curry}
 ```
 
-Prices are euro amounts with a decimal point and at most two decimal places. Negative amounts and invalid values are rejected. Omit `price` or set it to `null` to hide it; `price: 0` explicitly displays zero.
+Prices are amounts in the event currency, with a decimal point and at most two decimal places. Negative amounts and invalid values are rejected. Omit `price` or set it to `null` to hide it; `price: 0` explicitly displays zero.
 
 The language switch localizes prices in the featured meal, full schedule, drinks, and snacks. External menu prices reload just like other menu content.
 
@@ -445,7 +446,7 @@ events:
     menu: community-day.yaml
 ```
 
-Each menu uses the same conference, days, food trucks, and refreshments format. Paths are unique lowercase slugs; `/`, `/healthz`, `/static`, and `/branding` are reserved. Generate each venue QR code for its full event URL. `/` displays only a centered German/English instruction to scan the venue QR code, and unknown paths return 404.
+Each menu uses the same conference, days, food trucks, and refreshments format. Set `conference.currency` in each menu to `euro` (€), `dollar` ($), or `schekel` (₪); it defaults to `euro` when omitted. Paths are unique lowercase slugs; `/`, `/healthz`, `/static`, and `/branding` are reserved. Generate each venue QR code for its full event URL. `/` displays only a centered German/English instruction to scan the venue QR code, and unknown paths return 404.
 
 Event URLs are intentionally public and require no login or access token. Anyone who knows, guesses, or receives an event URL can open its menu directly. The QR code provides a convenient link; scanning it is not required for access. The root page does not list events.
 
@@ -491,4 +492,4 @@ food_trucks:
         description: {de: Mit Hummus und Salat, en: With hummus and salad}
 ```
 
-Each item requires an ID and a name in every configured language. Prices use the same euro formatting as other menu items: omit `price` to hide it, use `0` for free items, or use `price_normal` and `price_large` for sizes. `sold_out: true` shows the sold-out badge instead of prices. Descriptions are optional and require every configured translation when present. Omit `items` or use `items: []` to hide the list. Both example menus include priced food truck dishes.
+Each item requires an ID and a name in every configured language. Prices use the event's configured currency and the same localized formatting as other menu items: omit `price` to hide it, use `0` for free items, or use `price_normal` and `price_large` for sizes. `sold_out: true` shows the sold-out badge instead of prices. Descriptions are optional and require every configured translation when present. Omit `items` or use `items: []` to hide the list. Both example menus include priced food truck dishes.

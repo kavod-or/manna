@@ -59,6 +59,7 @@ type statusView struct {
 type priceView struct {
 	Price     *menu.Price
 	Languages []string
+	Currency  menu.Currency
 }
 
 var interfaceText = map[string]menu.Localized{
@@ -120,14 +121,14 @@ func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, con
 		"status": func(soldOut bool, conference menu.Conference) statusView {
 			return statusView{SoldOut: soldOut, Conference: conference}
 		},
-		"priceView": func(price *menu.Price, languages []string) priceView {
-			return priceView{Price: price, Languages: languages}
+		"priceView": func(price *menu.Price, conference menu.Conference) priceView {
+			return priceView{Price: price, Languages: conference.LanguageCodes(), Currency: conference.EffectiveCurrency()}
 		},
-		"formatPrice": func(price *menu.Price, language string) string {
+		"formatPrice": func(price *menu.Price, language string, currency menu.Currency) string {
 			if price == nil {
 				return ""
 			}
-			return price.Localized(language)
+			return price.Localized(language, currency)
 		},
 		"tag": func(tags map[string]menu.Localized, id, language string) string {
 			value, ok := tags[id]

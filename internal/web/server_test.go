@@ -289,6 +289,34 @@ func TestPricesInRealTemplate(t *testing.T) {
 	}
 }
 
+func TestConfiguredCurrencyRenders(t *testing.T) {
+	price := menu.Price(450)
+	for _, test := range []struct {
+		currency menu.Currency
+		german   string
+		english  string
+	}{
+		{menu.Euro, "4,50\u00a0€", "€4.50"},
+		{menu.Dollar, "4,50\u00a0$", "$4.50"},
+		{menu.Schekel, "4,50\u00a0₪", "₪4.50"},
+	} {
+		config := menu.Config{
+			Conference: menu.Conference{Currency: test.currency},
+			Days:       []menu.Day{{Services: []menu.Service{{Items: []menu.Item{{Price: &price}}}}}},
+		}
+		handler, err := newTestServer(func() (menu.Config, error) { return config, nil }, os.DirFS("../.."), fstest.MapFS{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
+		body := response.Body.String()
+		if !strings.Contains(body, test.german) || !strings.Contains(body, test.english) {
+			t.Errorf("currency %q missing from rendered prices", test.currency)
+		}
+	}
+}
+
 func TestAdditionalLanguageRenders(t *testing.T) {
 	price := menu.Price(450)
 	translations := func(de, en, fr, ru string) menu.Localized {
