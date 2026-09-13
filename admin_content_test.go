@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	admincontent "mana/internal/admin"
+	admincontent "manna/internal/admin"
 )
 
 func TestEventAdminListsAndReadsExistingEvents(t *testing.T) {

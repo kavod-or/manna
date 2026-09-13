@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	admincontent "mana/internal/admin"
-	"mana/internal/menu"
+	admincontent "manna/internal/admin"
+	"manna/internal/menu"
 )
 
 type eventAdmin struct {
@@ -207,7 +207,7 @@ func (root *rootedFS) createTemporaryFile(target string, mode fs.FileMode) (stri
 		if _, err := rand.Read(random[:]); err != nil {
 			return "", nil, err
 		}
-		name := path.Join(directory, "."+base+".mana-"+hex.EncodeToString(random[:]))
+		name := path.Join(directory, "."+base+".manna-"+hex.EncodeToString(random[:]))
 		file, err := root.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 		if err == nil {
 			return name, file, nil

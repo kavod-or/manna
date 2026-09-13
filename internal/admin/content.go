@@ -1,4 +1,4 @@
-// Package admin defines the content operations needed by Mana's admin UI.
+// Package admin defines the content operations needed by Manna's admin UI.
 package admin
 
 import "errors"

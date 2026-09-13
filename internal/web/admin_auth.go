@@ -15,7 +15,7 @@ import (
 
 const (
 	adminUsername          = "admin"
-	adminRequestHeader     = "X-Mana-Admin"
+	adminRequestHeader     = "X-Manna-Admin"
 	adminLoginFailureLimit = 5
 	adminLoginWindow       = time.Minute
 	adminLoginClientLimit  = 4096
@@ -73,7 +73,7 @@ func newAdminSecurity(password string, trustProxyHTTPS bool, trustedProxyCIDRs [
 				http.Error(writer, "Too Many Requests", http.StatusTooManyRequests)
 				return
 			}
-			writer.Header().Set("WWW-Authenticate", `Basic realm="Mana Admin", charset="UTF-8"`)
+			writer.Header().Set("WWW-Authenticate", `Basic realm="Manna Admin", charset="UTF-8"`)
 			http.Error(writer, "Unauthorized", http.StatusUnauthorized)
 			return
 		}

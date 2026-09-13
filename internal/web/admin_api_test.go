@@ -13,8 +13,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	admincontent "mana/internal/admin"
-	"mana/internal/menu"
+	admincontent "manna/internal/admin"
+	"manna/internal/menu"
 )
 
 func TestAdminAPIListsAndReadsEvents(t *testing.T) {
@@ -244,7 +244,7 @@ func serveAdminAPI(handler http.Handler, method, path, body string) *httptest.Re
 }
 
 func newAdminAPIRequest(method, path, body string) *http.Request {
-	request := httptest.NewRequest(method, "https://mana.example"+path, bytes.NewBufferString(body))
+	request := httptest.NewRequest(method, "https://manna.example"+path, bytes.NewBufferString(body))
 	request.SetBasicAuth("admin", "secret")
 	if method != http.MethodGet && method != http.MethodHead {
 		request.Header.Set(adminRequestHeader, "1")

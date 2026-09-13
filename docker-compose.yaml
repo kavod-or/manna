@@ -1,17 +1,17 @@
 services:
-  mana:
+  manna:
     build:
       context: .
-    image: mana:local
+    image: manna:local
     ports:
-      # The host reverse proxy may reach Mana; untrusted networks may not.
+      # The host reverse proxy may reach Manna; untrusted networks may not.
       - "127.0.0.1:8080:8080"
     environment:
       PORT: "8080"
       CONTENT_DIR: /app/content
-      MANA_ADMIN_PASSWORD: "${MANA_ADMIN_PASSWORD:?set MANA_ADMIN_PASSWORD in .env (at least 16 characters)}"
-      MANA_ADMIN_TRUST_PROXY_HTTPS: "${MANA_ADMIN_TRUST_PROXY_HTTPS:-false}"
-      MANA_ADMIN_TRUSTED_PROXY_CIDRS: "${MANA_ADMIN_TRUSTED_PROXY_CIDRS:-}"
+      MANNA_ADMIN_PASSWORD: "${MANNA_ADMIN_PASSWORD:?set MANNA_ADMIN_PASSWORD in .env (at least 16 characters)}"
+      MANNA_ADMIN_TRUST_PROXY_HTTPS: "${MANNA_ADMIN_TRUST_PROXY_HTTPS:-false}"
+      MANNA_ADMIN_TRUSTED_PROXY_CIDRS: "${MANNA_ADMIN_TRUSTED_PROXY_CIDRS:-}"
     volumes:
       # Only event content is writable; the rest of the container stays read-only.
       - ./content:/app/content:rw

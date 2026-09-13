@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	admincontent "mana/internal/admin"
-	"mana/internal/menu"
-	"mana/internal/version"
+	admincontent "manna/internal/admin"
+	"manna/internal/menu"
+	"manna/internal/version"
 )
 
 const maxBrandingLogoSize = 5 << 20

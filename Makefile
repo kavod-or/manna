@@ -11,7 +11,7 @@ dev:
 	CONTENT_DIR=content go tool -modfile=dev.mod air --build.include_ext "go,html,css,js,yaml"
 
 build:
-	go build -o bin/mana .
+	go build -o bin/manna .
 
 docker-up:
 	docker compose up --build

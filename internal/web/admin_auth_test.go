@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"mana/internal/menu"
+	"manna/internal/menu"
 )
 
 func TestAdminSecurityRequiresCorrectBasicAuthentication(t *testing.T) {
@@ -33,7 +33,7 @@ func TestAdminSecurityRequiresCorrectBasicAuthentication(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/", nil)
+			request := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/", nil)
 			if test.username != "" || test.password != "" {
 				request.SetBasicAuth(test.username, test.password)
 			}
@@ -47,7 +47,7 @@ func TestAdminSecurityRequiresCorrectBasicAuthentication(t *testing.T) {
 				t.Fatal("admin response can be cached")
 			}
 			challenge := response.Header().Get("WWW-Authenticate")
-			if test.want == http.StatusUnauthorized && challenge != `Basic realm="Mana Admin", charset="UTF-8"` {
+			if test.want == http.StatusUnauthorized && challenge != `Basic realm="Manna Admin", charset="UTF-8"` {
 				t.Fatalf("WWW-Authenticate = %q", challenge)
 			}
 			if test.password != "" && strings.Contains(response.Body.String(), test.password) {
@@ -72,17 +72,17 @@ func TestAdminSecurityProtectsModifyingRequests(t *testing.T) {
 	}{
 		{name: "read needs no integrity header", method: http.MethodGet, want: http.StatusNoContent},
 		{name: "write with custom header", method: http.MethodPut, header: "1", want: http.StatusNoContent},
-		{name: "same origin browser write", method: http.MethodPost, header: "1", origin: "https://mana.example", fetchSite: "same-origin", want: http.StatusNoContent},
+		{name: "same origin browser write", method: http.MethodPost, header: "1", origin: "https://manna.example", fetchSite: "same-origin", want: http.StatusNoContent},
 		{name: "missing custom header", method: http.MethodPut, want: http.StatusForbidden},
 		{name: "wrong custom header", method: http.MethodPut, header: "true", want: http.StatusForbidden},
 		{name: "cross origin", method: http.MethodPost, header: "1", origin: "https://attacker.example", fetchSite: "cross-site", want: http.StatusForbidden},
-		{name: "same site is not same origin", method: http.MethodPost, header: "1", origin: "https://other.mana.example", fetchSite: "same-site", want: http.StatusForbidden},
+		{name: "same site is not same origin", method: http.MethodPost, header: "1", origin: "https://other.manna.example", fetchSite: "same-site", want: http.StatusForbidden},
 		{name: "malformed origin", method: http.MethodDelete, header: "1", origin: "://bad", want: http.StatusForbidden},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(test.method, "https://mana.example/admin/api/events/test", nil)
+			request := httptest.NewRequest(test.method, "https://manna.example/admin/api/events/test", nil)
 			request.SetBasicAuth("admin", "secret")
 			if test.header != "" {
 				request.Header.Set(adminRequestHeader, test.header)
@@ -119,11 +119,11 @@ func TestAdminSecurityRequiresHTTPSOutsideLocalhost(t *testing.T) {
 		forwarded  string
 		want       int
 	}{
-		{name: "remote HTTP", target: "http://mana.example/admin/", want: http.StatusUpgradeRequired},
-		{name: "spoofed proxy header", target: "http://mana.example/admin/", forwarded: "https", want: http.StatusUpgradeRequired},
-		{name: "trusted HTTPS proxy", target: "http://mana.example/admin/", trustProxy: true, proxyCIDRs: []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}, forwarded: "https", want: http.StatusNoContent},
-		{name: "untrusted HTTPS proxy", target: "http://mana.example/admin/", trustProxy: true, proxyCIDRs: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")}, forwarded: "https", want: http.StatusUpgradeRequired},
-		{name: "direct HTTPS", target: "https://mana.example/admin/", want: http.StatusNoContent},
+		{name: "remote HTTP", target: "http://manna.example/admin/", want: http.StatusUpgradeRequired},
+		{name: "spoofed proxy header", target: "http://manna.example/admin/", forwarded: "https", want: http.StatusUpgradeRequired},
+		{name: "trusted HTTPS proxy", target: "http://manna.example/admin/", trustProxy: true, proxyCIDRs: []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}, forwarded: "https", want: http.StatusNoContent},
+		{name: "untrusted HTTPS proxy", target: "http://manna.example/admin/", trustProxy: true, proxyCIDRs: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")}, forwarded: "https", want: http.StatusUpgradeRequired},
+		{name: "direct HTTPS", target: "https://manna.example/admin/", want: http.StatusNoContent},
 		{name: "localhost development", target: "http://localhost:8080/admin/", want: http.StatusNoContent},
 		{name: "loopback development", target: "http://127.0.0.1:8080/admin/", want: http.StatusNoContent},
 	}
@@ -176,7 +176,7 @@ func TestAdminSecurityThrottlesFailedLoginsByClient(t *testing.T) {
 	}))
 
 	for attempt := 1; attempt <= adminLoginFailureLimit; attempt++ {
-		request := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/", nil)
+		request := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/", nil)
 		request.RemoteAddr = "203.0.113.10:1234"
 		request.SetBasicAuth("admin", "wrong password")
 		response := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestAdminSecurityThrottlesFailedLoginsByClient(t *testing.T) {
 		}
 	}
 
-	blocked := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/", nil)
+	blocked := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/", nil)
 	blocked.RemoteAddr = "203.0.113.10:5678"
 	blocked.SetBasicAuth("admin", "correct horse battery staple")
 	response := httptest.NewRecorder()
@@ -202,7 +202,7 @@ func TestAdminSecurityThrottlesFailedLoginsByClient(t *testing.T) {
 		t.Fatalf("correct login during throttle status = %d", response.Code)
 	}
 
-	otherClient := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/", nil)
+	otherClient := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/", nil)
 	otherClient.RemoteAddr = "203.0.113.11:1234"
 	otherClient.SetBasicAuth("admin", "correct horse battery staple")
 	response = httptest.NewRecorder()
@@ -227,7 +227,7 @@ func TestAdminSecurityUsesSanitizedClientFromTrustedProxy(t *testing.T) {
 	}))
 
 	for attempt := 1; attempt <= adminLoginFailureLimit; attempt++ {
-		request := httptest.NewRequest(http.MethodGet, "http://mana.example/admin/", nil)
+		request := httptest.NewRequest(http.MethodGet, "http://manna.example/admin/", nil)
 		request.RemoteAddr = "192.0.2.10:443"
 		request.Header.Set("X-Forwarded-Proto", "https")
 		request.Header.Set("X-Forwarded-For", "203.0.113.10")
@@ -236,7 +236,7 @@ func TestAdminSecurityUsesSanitizedClientFromTrustedProxy(t *testing.T) {
 		handler.ServeHTTP(response, request)
 	}
 
-	otherClient := httptest.NewRequest(http.MethodGet, "http://mana.example/admin/", nil)
+	otherClient := httptest.NewRequest(http.MethodGet, "http://manna.example/admin/", nil)
 	otherClient.RemoteAddr = "192.0.2.10:443"
 	otherClient.Header.Set("X-Forwarded-Proto", "https")
 	otherClient.Header.Set("X-Forwarded-For", "203.0.113.11")
@@ -247,7 +247,7 @@ func TestAdminSecurityUsesSanitizedClientFromTrustedProxy(t *testing.T) {
 		t.Fatalf("independent forwarded client status = %d", response.Code)
 	}
 
-	spoofedChain := httptest.NewRequest(http.MethodGet, "http://mana.example/admin/", nil)
+	spoofedChain := httptest.NewRequest(http.MethodGet, "http://manna.example/admin/", nil)
 	spoofedChain.RemoteAddr = "192.0.2.10:443"
 	spoofedChain.Header.Set("X-Forwarded-Proto", "https")
 	spoofedChain.Header.Set("X-Forwarded-For", "203.0.113.12, 203.0.113.13")
@@ -279,7 +279,7 @@ func TestAdminSubtreeIsRegisteredOnlyWhenConfigured(t *testing.T) {
 	}
 	for _, path := range []string{"/admin", "/admin/", "/admin/api/events"} {
 		response = httptest.NewRecorder()
-		withAdmin.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "https://mana.example"+path, nil))
+		withAdmin.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "https://manna.example"+path, nil))
 		if response.Code != http.StatusUnauthorized {
 			t.Errorf("unauthenticated %s status = %d", path, response.Code)
 		}
@@ -287,7 +287,7 @@ func TestAdminSubtreeIsRegisteredOnlyWhenConfigured(t *testing.T) {
 			t.Errorf("unauthenticated %s exposed admin content: %s", path, response.Body.String())
 		}
 
-		request := httptest.NewRequest(http.MethodGet, "https://mana.example"+path, nil)
+		request := httptest.NewRequest(http.MethodGet, "https://manna.example"+path, nil)
 		request.SetBasicAuth("admin", "secret")
 		response = httptest.NewRecorder()
 		withAdmin.ServeHTTP(response, request)

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	admincontent "mana/internal/admin"
+	admincontent "manna/internal/admin"
 )
 
 const maxAdminRequestSize = 1 << 20

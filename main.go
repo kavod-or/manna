@@ -16,16 +16,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"mana/internal/web"
+	"manna/internal/web"
 )
 
 //go:embed content web/templates/*.html web/static/*
 var assets embed.FS
 
 const (
-	adminPasswordEnvironment          = "MANA_ADMIN_PASSWORD"
-	adminTrustProxyHTTPSEnvironment   = "MANA_ADMIN_TRUST_PROXY_HTTPS"
-	adminTrustedProxyCIDRsEnvironment = "MANA_ADMIN_TRUSTED_PROXY_CIDRS"
+	adminPasswordEnvironment          = "MANNA_ADMIN_PASSWORD"
+	adminTrustProxyHTTPSEnvironment   = "MANNA_ADMIN_TRUST_PROXY_HTTPS"
+	adminTrustedProxyCIDRsEnvironment = "MANNA_ADMIN_TRUSTED_PROXY_CIDRS"
 	minimumAdminPasswordLength        = 16
 )
 
@@ -111,7 +111,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("mana is ready", "address", fmt.Sprintf("http://localhost:%s", port))
+	logger.Info("manna is ready", "address", fmt.Sprintf("http://localhost:%s", port))
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped unexpectedly", "error", err)
 		os.Exit(1)
@@ -176,7 +176,7 @@ func verifyAdminContentWritable(config adminConfig, content fs.FS) error {
 		return fmt.Errorf("configured content filesystem does not support admin writes")
 	}
 	if err := writable.verifyWritable(); err != nil {
-		return fmt.Errorf("CONTENT_DIR must be writable by the Mana process: %w", err)
+		return fmt.Errorf("CONTENT_DIR must be writable by the Manna process: %w", err)
 	}
 	return nil
 }

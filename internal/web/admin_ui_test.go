@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"mana/internal/menu"
+	"manna/internal/menu"
 )
 
 func TestAdminEditorPageAndAssets(t *testing.T) {
@@ -25,7 +25,7 @@ func TestAdminEditorPageAndAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	redirect := httptest.NewRequest(http.MethodGet, "https://mana.example/admin", nil)
+	redirect := httptest.NewRequest(http.MethodGet, "https://manna.example/admin", nil)
 	redirect.SetBasicAuth("admin", "secret")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, redirect)
@@ -33,7 +33,7 @@ func TestAdminEditorPageAndAssets(t *testing.T) {
 		t.Fatalf("admin redirect = %d %q", response.Code, response.Header().Get("Location"))
 	}
 
-	page := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/", nil)
+	page := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/", nil)
 	page.SetBasicAuth("admin", "secret")
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, page)
@@ -50,7 +50,7 @@ func TestAdminEditorPageAndAssets(t *testing.T) {
 	}
 
 	for _, asset := range []string{"admin.css", "admin.js"} {
-		request := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/static/"+asset, nil)
+		request := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/static/"+asset, nil)
 		request.SetBasicAuth("admin", "secret")
 		response = httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -62,14 +62,14 @@ func TestAdminEditorPageAndAssets(t *testing.T) {
 		}
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/static/admin.js", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/static/admin.js", nil)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated admin asset status = %d", response.Code)
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "https://mana.example/admin/static/secret.yaml", nil)
+	request = httptest.NewRequest(http.MethodGet, "https://manna.example/admin/static/secret.yaml", nil)
 	request.SetBasicAuth("admin", "secret")
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

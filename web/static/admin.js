@@ -144,7 +144,7 @@
     try {
       await requestJSON(`/admin/api/events/${eventSlug(state.path)}/validate`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-Mana-Admin': '1'},
+        headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
         body: JSON.stringify({yaml: elements.editor.value}),
       });
       setStatus('YAML is valid. Nothing has been published yet.', 'success');
@@ -163,7 +163,7 @@
     try {
       const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}`, {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json', 'X-Mana-Admin': '1'},
+        headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
         body: JSON.stringify({yaml: elements.editor.value, revision: state.revision}),
       });
       state.revision = body.revision;
@@ -216,7 +216,7 @@
   updatePublicLink();
   updatePosition();
   const ready = loadEvents();
-  if (globalThis.__manaAdminTest) {
-    Object.assign(globalThis.__manaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu});
+  if (globalThis.__mannaAdminTest) {
+    Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu});
   }
 })();

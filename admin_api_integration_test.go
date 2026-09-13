@@ -12,7 +12,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"mana/internal/web"
+	"manna/internal/web"
 )
 
 func TestAdminAPIWithRootedEventContent(t *testing.T) {
@@ -29,7 +29,7 @@ func TestAdminAPIWithRootedEventContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	readRequest := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/api/events/alpha", nil)
+	readRequest := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/api/events/alpha", nil)
 	readRequest.SetBasicAuth("admin", "secret")
 	readResponse := httptest.NewRecorder()
 	handler.ServeHTTP(readResponse, readRequest)
@@ -48,10 +48,10 @@ func TestAdminAPIWithRootedEventContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publishRequest := httptest.NewRequest(http.MethodPut, "https://mana.example/admin/api/events/alpha", bytes.NewReader(body))
+	publishRequest := httptest.NewRequest(http.MethodPut, "https://manna.example/admin/api/events/alpha", bytes.NewReader(body))
 	publishRequest.SetBasicAuth("admin", "secret")
 	publishRequest.Header.Set("Content-Type", "application/json")
-	publishRequest.Header.Set("X-Mana-Admin", "1")
+	publishRequest.Header.Set("X-Manna-Admin", "1")
 	publishResponse := httptest.NewRecorder()
 	handler.ServeHTTP(publishResponse, publishRequest)
 	if publishResponse.Code != http.StatusOK {

@@ -1,4 +1,4 @@
-module mana
+module manna
 
 go 1.26.8
 

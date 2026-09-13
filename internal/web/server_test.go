@@ -15,7 +15,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"mana/internal/menu"
+	"manna/internal/menu"
 )
 
 func TestServerRendersMenuAndSecurityHeaders(t *testing.T) {
@@ -24,7 +24,7 @@ func TestServerRendersMenuAndSecurityHeaders(t *testing.T) {
 	}
 	staticFS := fstest.MapFS{"styles.css": {Data: []byte("body{}")}}
 	config := menu.Config{
-		Conference: menu.Conference{Name: menu.Localized{DE: "Mana Konferenz", EN: "Mana Conference"}, Location: menu.Localized{DE: "Foyer", EN: "Foyer"}},
+		Conference: menu.Conference{Name: menu.Localized{DE: "Manna Konferenz", EN: "Manna Conference"}, Location: menu.Localized{DE: "Foyer", EN: "Foyer"}},
 		Days:       []menu.Day{{Date: "2026-10-12", Services: []menu.Service{{ID: "lunch", Title: menu.Localized{DE: "Mittagessen", EN: "Lunch"}, From: "12:00", Until: "13:00"}}}},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -41,7 +41,7 @@ func TestServerRendersMenuAndSecurityHeaders(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), "Mana Konferenz") {
+	if !strings.Contains(response.Body.String(), "Manna Konferenz") {
 		t.Fatalf("response does not contain conference name: %s", response.Body.String())
 	}
 	if got := response.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") {
@@ -89,7 +89,7 @@ func TestAccessLogIncludesAdminEndpointWithoutCredentialsOrQuery(t *testing.T) {
 		writer.WriteHeader(http.StatusNoContent)
 	}), logger)
 
-	request := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/api/events/private-event?token=query-secret", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://manna.example/admin/api/events/private-event?token=query-secret", nil)
 	request.SetBasicAuth("admin", "password-that-must-not-be-logged")
 	handler.ServeHTTP(httptest.NewRecorder(), request)
 	logged := output.String()
@@ -125,7 +125,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 func TestCompressesHTMLWhenAccepted(t *testing.T) {
 	templateFS := fstest.MapFS{
-		"web/templates/index.html": {Data: []byte(`{{define "index.html"}}<h1>Mana Conference</h1>{{end}}`)},
+		"web/templates/index.html": {Data: []byte(`{{define "index.html"}}<h1>Manna Conference</h1>{{end}}`)},
 	}
 	staticFS := fstest.MapFS{"styles.css": {Data: []byte("body{}")}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -151,7 +151,7 @@ func TestCompressesHTMLWhenAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gzip response: %v", err)
 	}
-	if !strings.Contains(string(body), "Mana Conference") {
+	if !strings.Contains(string(body), "Manna Conference") {
 		t.Fatalf("unexpected uncompressed body: %s", body)
 	}
 }
@@ -439,7 +439,7 @@ func TestMenuFooterOrder(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
 	body := response.Body.String()
 	meal := strings.Index(body, "Guten Appetit!")
-	poweredBy := strings.Index(body, "Powered by Mana v")
+	poweredBy := strings.Index(body, "Powered by Manna v")
 	github := strings.Index(body, `class="github-link"`)
 	if meal < 0 || poweredBy < meal || github < poweredBy {
 		t.Fatal("footer items are not ordered meal, powered by, GitHub")
@@ -480,7 +480,7 @@ func TestEventRouting(t *testing.T) {
 		handler.ServeHTTP(response, httptest.NewRequest("GET", path, nil))
 		switch path {
 		case "/":
-			if response.Code != 200 || !strings.Contains(response.Body.String(), "Please scan the QR code") || !strings.Contains(response.Body.String(), "Powered by Mana v") || !strings.Contains(response.Body.String(), `target="_blank" rel="noopener noreferrer" aria-label="Mana on GitHub"`) || strings.Contains(response.Body.String(), "GitHub ↗") || strings.Contains(response.Body.String(), "alpha") {
+			if response.Code != 200 || !strings.Contains(response.Body.String(), "Please scan the QR code") || !strings.Contains(response.Body.String(), "Powered by Manna v") || !strings.Contains(response.Body.String(), `target="_blank" rel="noopener noreferrer" aria-label="Manna on GitHub"`) || strings.Contains(response.Body.String(), "GitHub ↗") || strings.Contains(response.Body.String(), "alpha") {
 				t.Fatal("incorrect landing page")
 			}
 		case "/alpha", "/beta":
@@ -539,7 +539,7 @@ func TestNotFoundPage(t *testing.T) {
 	if response.Header().Get("Content-Type") != "text/html; charset=utf-8" {
 		t.Fatal("expected HTML")
 	}
-	for _, text := range []string{"Hier ist noch nicht gedeckt.", "This page couldn’t be found.", "QR-Code", "Powered by Mana v", `target="_blank" rel="noopener noreferrer" aria-label="Mana on GitHub"`} {
+	for _, text := range []string{"Hier ist noch nicht gedeckt.", "This page couldn’t be found.", "QR-Code", "Powered by Manna v", `target="_blank" rel="noopener noreferrer" aria-label="Manna on GitHub"`} {
 		if !strings.Contains(response.Body.String(), text) {
 			t.Errorf("missing %q", text)
 		}

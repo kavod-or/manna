@@ -47,7 +47,7 @@ function adminContext(replies) {
   const confirmations = [];
   const hook = {};
   const context = {
-    __manaAdminTest: hook,
+    __mannaAdminTest: hook,
     document: {
       getElementById(id) { return elements[id]; },
       createElement() { return element(); },
@@ -92,7 +92,7 @@ test('admin editor loads existing YAML and publishes explicit changes', async ()
   await setup.hook.publishMenu();
   assert.equal(setup.requests.at(-1).url, '/admin/api/events/alpha');
   assert.equal(setup.requests.at(-1).options.method, 'PUT');
-  assert.equal(setup.requests.at(-1).options.headers['X-Mana-Admin'], '1');
+  assert.equal(setup.requests.at(-1).options.headers['X-Manna-Admin'], '1');
   assert.deepEqual(JSON.parse(setup.requests.at(-1).options.body), {yaml: 'conference: updated\n', revision: 'rev-1'});
   assert.equal(setup.hook.state.revision, 'rev-2');
   assert.equal(setup.hook.isDirty(), false);

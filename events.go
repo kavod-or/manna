@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"mana/internal/menu"
+	"manna/internal/menu"
 )
 
 type eventEntry struct {

@@ -2,7 +2,7 @@
 # Omit price (or use null) to hide it; price: 0 displays zero.
 # Add sold_out: true to any meal or item to show the localized sold-out label.
 conference:
-  currency: dollar
+  currency: schekel
   # Add language codes here and provide each translation throughout this file.
   languages: [de, en]
   serious_mode: true

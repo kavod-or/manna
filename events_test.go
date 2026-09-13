@@ -2,7 +2,7 @@ package main
 
 import (
 	"io/fs"
-	"mana/internal/menu"
+	"manna/internal/menu"
 	"os"
 	"path/filepath"
 	"testing"
