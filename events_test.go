@@ -37,7 +37,7 @@ func TestEmbeddedEvents(t *testing.T) {
 }
 
 func TestRejectInvalidEventPaths(t *testing.T) {
-	for _, path := range []string{"/", "/healthz", "/static", "/branding", "/../secret", "missing-slash"} {
+	for _, path := range []string{"/", "/healthz", "/static", "/branding", "/admin", "/../secret", "missing-slash"} {
 		_, err := loadEventFS(fstest.MapFS{"events.yaml": {Data: []byte("events:\n  - path: " + path + "\n    menu: menu.yaml\n")}})
 		if err == nil {
 			t.Fatalf("accepted %s", path)

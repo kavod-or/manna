@@ -49,6 +49,60 @@ func TestServerRendersMenuAndSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestMenuContentCannotInjectHTMLOrScript(t *testing.T) {
+	malicious := `<img src=x onerror="alert(1)"><script>alert(2)</script>`
+	config := menu.Config{
+		Conference: menu.Conference{
+			Name:     menu.Localized{DE: malicious, EN: malicious},
+			Location: menu.Localized{DE: malicious, EN: malicious},
+		},
+		Days: []menu.Day{{
+			Date: "2026-10-12",
+			Services: []menu.Service{{
+				ID:       "lunch",
+				Title:    menu.Localized{DE: malicious, EN: malicious},
+				Subtitle: menu.Localized{DE: malicious, EN: malicious},
+				From:     "12:00",
+				Until:    "13:00",
+			}},
+		}},
+	}
+	handler, err := New(map[string]menu.Loader{"/event": func() (menu.Config, error) { return config, nil }}, os.DirFS("../.."), os.DirFS("../../web/static"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/event", nil))
+	body := response.Body.String()
+	if strings.Contains(body, "<script>alert") || strings.Contains(body, "<img src=x") || strings.Contains(body, `onerror="alert`) {
+		t.Fatalf("menu content rendered as executable markup: %s", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Fatal("malicious menu content was not visibly HTML-escaped")
+	}
+}
+
+func TestAccessLogIncludesAdminEndpointWithoutCredentialsOrQuery(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	handler := accessLog(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}), logger)
+
+	request := httptest.NewRequest(http.MethodGet, "https://mana.example/admin/api/events/private-event?token=query-secret", nil)
+	request.SetBasicAuth("admin", "password-that-must-not-be-logged")
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	logged := output.String()
+	if !strings.Contains(logged, "/admin/api/events/private-event") {
+		t.Fatalf("admin access log omitted its endpoint: %s", logged)
+	}
+	for _, secret := range []string{"password-that-must-not-be-logged", "query-secret", "Authorization", "Basic "} {
+		if strings.Contains(logged, secret) {
+			t.Fatalf("access log exposed %q: %s", secret, logged)
+		}
+	}
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	templateFS := fstest.MapFS{
 		"web/templates/index.html": {Data: []byte(`{{define "index.html"}}ok{{end}}`)},

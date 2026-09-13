@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.24-alpine AS build
+FROM golang:1.26.8-alpine AS build
 WORKDIR /src
+RUN apk upgrade --no-cache
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -9,8 +10,10 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/mana .
 
-FROM alpine:3.22
-RUN addgroup -S mana && adduser -S -G mana -u 10001 mana
+FROM alpine:3.22.5
+RUN apk upgrade --no-cache \
+    && addgroup -S mana \
+    && adduser -S -G mana -u 10001 mana
 
 WORKDIR /app
 COPY --from=build /out/mana /usr/local/bin/mana

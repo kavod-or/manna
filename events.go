@@ -166,7 +166,7 @@ func loadEventEntries(content fs.FS) ([]eventEntry, error) {
 	}
 	seen := make(map[string]bool, len(manifest.Events))
 	for _, entry := range manifest.Events {
-		if !eventPathPattern.MatchString(entry.Path) || entry.Path == "/healthz" || entry.Path == "/static" || entry.Path == "/branding" {
+		if !eventPathPattern.MatchString(entry.Path) || entry.Path == "/healthz" || entry.Path == "/static" || entry.Path == "/branding" || entry.Path == "/admin" {
 			return nil, fmt.Errorf("invalid or reserved event path %q", entry.Path)
 		}
 		if seen[entry.Path] {

@@ -8,10 +8,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
+	admincontent "mana/internal/admin"
 	"mana/internal/menu"
 	"mana/internal/version"
 )
@@ -19,14 +21,23 @@ import (
 const maxBrandingLogoSize = 5 << 20
 
 type server struct {
-	events  EventsLoader
-	page    *template.Template
-	static  http.Handler
-	content fs.FS
-	logger  *slog.Logger
+	events      EventsLoader
+	page        *template.Template
+	static      http.Handler
+	adminStatic http.Handler
+	content     fs.FS
+	admin       admincontent.Content
+	logger      *slog.Logger
 }
 
 type EventsLoader func() (map[string]menu.Loader, error)
+
+type AdminOptions struct {
+	Password          string
+	Content           admincontent.Content
+	TrustProxyHTTPS   bool
+	TrustedProxyCIDRs []netip.Prefix
+}
 
 type localizedView struct {
 	Value     menu.Localized
@@ -55,7 +66,7 @@ var interfaceText = map[string]menu.Localized{
 	"refreshments": interfaceTranslation("Getränke & Snacks", "Drinks & Snacks", "Напитки и снеки"),
 	"schedule":     interfaceTranslation("Tagesplan", "Schedule", "Расписание"),
 	"food_trucks":  interfaceTranslation("Food Trucks", "Food Trucks", "Фудтраки — уличная еда"),
-	"more":         interfaceTranslation("Zusätzlich vor Ort", "More to enjoy", "Также на месте"),
+	"more":         interfaceTranslation("Zusätzlich vor Ort", "More to enjoy", "Дополнительные угощения"),
 	"location":     interfaceTranslation("Standort", "Location", "Локация"),
 	"all_day":      interfaceTranslation("Durchgehend", "All day", "Весь день"),
 	"coffee":       interfaceTranslation("Kaffee", "Coffee", "Кофе"),
@@ -78,6 +89,10 @@ func New(events map[string]menu.Loader, templates fs.FS, static fs.FS, logger *s
 }
 
 func NewDynamic(events EventsLoader, templates fs.FS, static fs.FS, content fs.FS, logger *slog.Logger) (http.Handler, error) {
+	return NewDynamicWithAdmin(events, templates, static, content, logger, AdminOptions{})
+}
+
+func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, content fs.FS, logger *slog.Logger, adminOptions AdminOptions) (http.Handler, error) {
 	functions := template.FuncMap{
 		"version":   func() string { return version.Current },
 		"languages": func(conference menu.Conference) []string { return conference.LanguageCodes() },
@@ -134,12 +149,19 @@ func NewDynamic(events EventsLoader, templates fs.FS, static fs.FS, content fs.F
 	if _, err := page.New("not-found").Parse(notFoundPage); err != nil {
 		return nil, err
 	}
+	if adminOptions.Password != "" && adminOptions.Content != nil {
+		if _, err := page.ParseFS(templates, "web/templates/admin.html"); err != nil {
+			return nil, err
+		}
+	}
 	s := &server{
-		events:  events,
-		page:    page,
-		static:  http.StripPrefix("/static/", http.FileServer(http.FS(static))),
-		content: content,
-		logger:  logger,
+		events:      events,
+		page:        page,
+		static:      http.StripPrefix("/static/", http.FileServer(http.FS(static))),
+		adminStatic: http.StripPrefix("/admin/static/", http.FileServer(http.FS(static))),
+		content:     content,
+		admin:       adminOptions.Content,
+		logger:      logger,
 	}
 
 	mux := http.NewServeMux()
@@ -147,7 +169,18 @@ func NewDynamic(events EventsLoader, templates fs.FS, static fs.FS, content fs.F
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /static/", s.asset)
 	mux.HandleFunc("GET /branding/", s.brandingLogo)
-	return securityHeaders(gzipResponses(accessLog(mux, logger))), nil
+	var handler http.Handler = mux
+	if adminOptions.Password != "" {
+		securedAdmin := adminSecurity(adminOptions.Password, adminOptions.TrustProxyHTTPS, adminOptions.TrustedProxyCIDRs, s.adminHandler())
+		handler = http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/admin" || strings.HasPrefix(request.URL.Path, "/admin/") {
+				securedAdmin.ServeHTTP(writer, request)
+				return
+			}
+			mux.ServeHTTP(writer, request)
+		})
+	}
+	return securityHeaders(gzipResponses(accessLog(handler, logger))), nil
 }
 
 func (s *server) brandingLogo(writer http.ResponseWriter, request *http.Request) {
@@ -349,6 +382,8 @@ func accessLog(next http.Handler, logger *slog.Logger) http.Handler {
 		started := time.Now()
 		recorder := &responseRecorder{ResponseWriter: writer, status: http.StatusOK}
 		next.ServeHTTP(recorder, request)
+		// URL.Path contains the endpoint but excludes query parameters, user info,
+		// headers (including Authorization), and the request body.
 		logger.Info("request", "method", request.Method, "path", request.URL.Path, "status", recorder.status, "duration", time.Since(started))
 	})
 }

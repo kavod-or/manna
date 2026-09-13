@@ -1,0 +1,60 @@
+{{define "admin.html"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Menu editor · Mana</title>
+  <link rel="icon" href="/static/favicon.png?v=2" type="image/png">
+  <link rel="stylesheet" href="/admin/static/admin.css?v={{version}}">
+  <script src="/admin/static/admin.js?v={{version}}" defer></script>
+</head>
+<body>
+  <header class="admin-header">
+    <a class="admin-brand" href="/admin/" aria-label="Mana admin home">
+      <img src="/static/logo.png?v=2" alt="Mana" width="512" height="168">
+      <span>Menu editor</span>
+    </a>
+    <span class="admin-version">v{{version}}</span>
+  </header>
+
+  <main class="admin-shell">
+    <section class="editor-card" aria-labelledby="editor-title">
+      <div class="editor-heading">
+        <div>
+          <p class="eyebrow">Admin</p>
+          <h1 id="editor-title">Edit event menu</h1>
+          <p class="intro">Choose an existing event, validate its YAML, then publish it.</p>
+        </div>
+        <a id="public-menu-link" class="secondary-link is-disabled" href="#" target="_blank" rel="noopener noreferrer" aria-disabled="true">Open public menu</a>
+      </div>
+
+      <div class="editor-toolbar">
+        <label class="event-field" for="event-select">
+          <span>Event</span>
+          <select id="event-select" disabled>
+            <option>Loading events…</option>
+          </select>
+        </label>
+        <div class="editor-actions">
+          <button id="reload-button" class="button secondary" type="button" disabled>Reload</button>
+          <button id="validate-button" class="button secondary" type="button" disabled>Validate</button>
+          <button id="publish-button" class="button primary" type="button" disabled>Publish</button>
+        </div>
+      </div>
+
+      <div id="editor-status" class="editor-status is-neutral" role="status" aria-live="polite">Loading events…</div>
+
+      <label class="yaml-field" for="yaml-editor">
+        <span class="visually-hidden">Event menu YAML</span>
+        <textarea id="yaml-editor" aria-describedby="editor-help editor-position" spellcheck="false" autocapitalize="off" autocomplete="off" disabled></textarea>
+      </label>
+
+      <div class="editor-footer">
+        <p id="editor-help">Tab inserts two spaces. <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd> validates without publishing.</p>
+        <span id="editor-position">Line 1, column 1</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>{{end}}
