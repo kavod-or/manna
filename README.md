@@ -42,9 +42,10 @@ CONTENT_DIR=content go run .
 
 ### Docker Compose
 
-Create the ignored environment file, generate a unique password of at least 16 characters, and paste it after `MANNA_ADMIN_PASSWORD=` in `.env`:
+Copy the provided Compose and environment examples, generate a unique password of at least 16 characters, and paste it after `MANNA_ADMIN_PASSWORD=` in `.env`:
 
 ```bash
+cp docker-compose.example.yaml docker-compose.yaml
 cp .env.example .env
 openssl rand -base64 32
 docker compose up --build -d
@@ -226,11 +227,21 @@ If nginx runs in a container instead, assign that proxy container a fixed addres
 
 ### Content permissions
 
-The container runs as UID `10001`. It must be able to read `events.yaml` and create, rename, and remove menu files in `content`. Docker Desktop normally handles bind-mount access. On a dedicated native Linux deployment where the container may own these files, use:
+The container runs as the non-root UID `10001`. It must be able to read `events.yaml` and create, rename, and remove menu files in `content`. At startup, Manna verifies this by creating and removing a temporary `.events.yaml.manna-*` file in that directory; this does not modify the read-only event manifest. A `permission denied` error for that temporary file means UID `10001` cannot write to the host directory.
+
+Do not map the container to host UID `0` when deploying from a root-owned checkout. Keep the container non-root and grant UID `10001` access with filesystem ACLs instead; the files remain owned by root:
 
 ```bash
-sudo chown -R 10001:10001 content
-sudo chmod -R u+rwX,go-rwx content
+setfacl -R -m u:10001:rwX content
+find content -type d -exec setfacl -m d:u:10001:rwx {} +
+```
+
+The Compose example uses `Z` on its bind mounts so Docker assigns a private container label on SELinux systems. Do not disable SELinux globally. If `setfacl` is unavailable and the container may own the files, use this simpler alternative:
+
+```bash
+chown -R 10001:10001 content
+chmod 700 content
+chmod 600 content/*
 ```
 
 Verify the mounted permissions without starting the web server:
@@ -240,7 +251,7 @@ docker compose run --rm --entrypoint sh manna -c \
   'test -r /app/content/events.yaml && test -w /app/content && test -w /app/content/menu.yaml'
 ```
 
-If host users must retain ownership, use an administrator-managed ACL instead. Do not make the directory world-writable.
+Verify that the container still runs as UID `10001` with `docker compose run --rm --entrypoint id manna`. Do not run Manna as root and do not make the directory world-writable.
 
 ### Backup example
 
