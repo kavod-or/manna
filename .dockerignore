@@ -7,3 +7,4 @@ dev.sum
 .env
 .env.*
 !.env.example
+content/events.yaml

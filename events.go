@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -34,6 +35,11 @@ type eventRegistry struct {
 }
 
 var eventPathPattern = regexp.MustCompile(`^/[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+const (
+	eventManifestFile         = "events.yaml"
+	eventManifestTemplateFile = "events.example.yaml"
+)
 
 type rootedFS struct {
 	root *os.Root
@@ -147,7 +153,12 @@ func loadEventRoutes(content fs.FS, current map[string]eventRoute) (map[string]e
 }
 
 func loadEventEntries(content fs.FS) ([]eventEntry, error) {
-	file, err := content.Open("events.yaml")
+	manifestPath := eventManifestFile
+	file, err := content.Open(manifestPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		manifestPath = eventManifestTemplateFile
+		file, err = content.Open(manifestPath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -158,11 +169,11 @@ func loadEventEntries(content fs.FS) ([]eventEntry, error) {
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&manifest); err != nil {
-		return nil, fmt.Errorf("decode events.yaml: %w", err)
+		return nil, fmt.Errorf("decode %s: %w", manifestPath, err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return nil, fmt.Errorf("events.yaml must contain exactly one YAML document")
+		return nil, fmt.Errorf("%s must contain exactly one YAML document", manifestPath)
 	}
 	seen := make(map[string]bool, len(manifest.Events))
 	for _, entry := range manifest.Events {

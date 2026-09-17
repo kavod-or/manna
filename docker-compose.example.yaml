@@ -16,7 +16,7 @@ services:
       # Only event content is writable; the rest of the container stays read-only.
       - ./content:/app/content:rw,Z
       # The editor may update menu files, never the event manifest.
-      - ./content/events.yaml:/app/content/events.yaml:ro,Z
+      - "${MANNA_EVENTS_FILE:-./content/events.example.yaml}:/app/content/events.yaml:ro,Z"
     restart: unless-stopped
     read_only: true
     tmpfs:

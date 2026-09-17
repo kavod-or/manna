@@ -43,6 +43,30 @@ func TestEmbeddedEvents(t *testing.T) {
 	}
 }
 
+func TestEventManifestTemplateFallbackAndRuntimeOverride(t *testing.T) {
+	content := fstest.MapFS{
+		"events.example.yaml": {Data: []byte("events:\n  - path: /template\n    menu: template.yaml\n")},
+		"template.yaml":       {Data: []byte(testMenu("Template"))},
+		"runtime.yaml":        {Data: []byte(testMenu("Runtime"))},
+	}
+	events, err := loadEventFS(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events["/template"] == nil {
+		t.Fatal("template manifest was not used when events.yaml was absent")
+	}
+
+	content["events.yaml"] = &fstest.MapFile{Data: []byte("events:\n  - path: /runtime\n    menu: runtime.yaml\n")}
+	events, err = loadEventFS(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events["/runtime"] == nil || events["/template"] != nil {
+		t.Fatalf("runtime manifest did not override template: %#v", events)
+	}
+}
+
 func TestRejectInvalidEventPaths(t *testing.T) {
 	for _, path := range []string{"/", "/healthz", "/static", "/branding", "/admin", "/../secret", "missing-slash"} {
 		_, err := loadEventFS(fstest.MapFS{"events.yaml": {Data: []byte("events:\n  - path: " + path + "\n    menu: menu.yaml\n")}})

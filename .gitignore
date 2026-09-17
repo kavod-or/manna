@@ -4,3 +4,4 @@
 .env.*
 !.env.example
 docker-compose.yaml
+/content/events.yaml
