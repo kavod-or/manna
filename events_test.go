@@ -10,12 +10,13 @@ import (
 )
 
 func TestEmbeddedEvents(t *testing.T) {
-	content, err := loadContentFS()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if closer, ok := content.(interface{ Close() error }); ok {
-		defer closer.Close()
+	content := fstest.MapFS{}
+	for _, name := range []string{"events.example.yaml", "menu.yaml", "community-day.yaml"} {
+		data, err := fs.ReadFile(assets, "content/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content[name] = &fstest.MapFile{Data: data}
 	}
 	events, err := loadEventFS(content)
 	if err != nil {
@@ -77,12 +78,32 @@ func TestRejectInvalidEventPaths(t *testing.T) {
 }
 
 func TestRejectInvalidMenuPaths(t *testing.T) {
-	for _, menuPath := range []string{"../secret.yaml", "/etc/passwd", `..\secret.yaml`, "./menu.yaml"} {
+	for _, menuPath := range []string{
+		"../secret.yaml",
+		"/etc/passwd",
+		`..\secret.yaml`,
+		"./menu.yaml",
+		"menu.yml",
+		"menu.json",
+		"events.yaml",
+		"events.example.yaml",
+	} {
 		manifest := "events:\n  - path: /test\n    menu: '" + menuPath + "'\n"
 		_, err := loadEventFS(fstest.MapFS{"events.yaml": {Data: []byte(manifest)}})
 		if err == nil {
 			t.Fatalf("accepted menu path %q", menuPath)
 		}
+	}
+}
+
+func TestAcceptNestedYAMLMenuPath(t *testing.T) {
+	manifest := "events:\n  - path: /test\n    menu: conferences/menu.yaml\n"
+	content := fstest.MapFS{
+		"events.yaml":           {Data: []byte(manifest)},
+		"conferences/menu.yaml": {Data: []byte(testMenu("Nested"))},
+	}
+	if _, err := loadEventFS(content); err != nil {
+		t.Fatalf("rejected a safe nested YAML menu path: %v", err)
 	}
 }
 

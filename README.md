@@ -19,10 +19,9 @@ Manna is a small, responsive conference catering guide. It supports multiple eve
 
 ### Local development, including the admin editor
 
-Go 1.26.8 or newer is required. Generate a temporary password for the current shell and start the development server with automatic reload:
+Go 1.26.8 or newer is required. Start the development server with automatic reload:
 
 ```bash
-export MANNA_ADMIN_PASSWORD="$(openssl rand -base64 32)"
 make dev
 ```
 
@@ -32,7 +31,7 @@ Then open:
 - admin editor: [http://localhost:8080/admin/](http://localhost:8080/admin/)
 - health check: [http://localhost:8080/healthz](http://localhost:8080/healthz)
 
-Sign in to the editor with username `admin` and the generated password. To display it when needed, run `printf '%s\n' "$MANNA_ADMIN_PASSWORD"`. The password lasts only for this shell. `make dev` already sets `CONTENT_DIR=content`, so validated changes published in the editor update the files in this checkout.
+Sign in to the editor with username `admin` and password `manna-local-development`. This predictable credential is only supplied by the local `make dev` command. Set `MANNA_ADMIN_PASSWORD` before running it to override the development password. `make dev` also sets `CONTENT_DIR=content`, so validated changes published in the editor update the files in this checkout.
 
 To run without the editor, leave `MANNA_ADMIN_PASSWORD` unset:
 
@@ -467,7 +466,7 @@ events:
     menu: community-day.yaml
 ```
 
-Each menu uses the same conference, days, food trucks, and refreshments format. Set `conference.currency` in each menu to `euro` (€), `dollar` ($), or `schekel` (₪); it defaults to `euro` when omitted. Paths are unique lowercase slugs; `/`, `/healthz`, `/static`, and `/branding` are reserved. Generate each venue QR code for its full event URL. `/` displays only a centered German/English instruction to scan the venue QR code, and unknown paths return 404.
+Each menu uses the same conference, days, food trucks, and refreshments format. Menu paths must be relative, end in `.yaml`, and cannot point to `events.yaml` or `events.example.yaml`. Set `conference.currency` in each menu to `euro` (€), `dollar` ($), or `schekel` (₪); it defaults to `euro` when omitted. Paths are unique lowercase slugs; `/`, `/healthz`, `/static`, and `/branding` are reserved. Generate each venue QR code for its full event URL. `/` displays only a centered German/English instruction to scan the venue QR code, and unknown paths return 404.
 
 Event URLs are intentionally public and require no login or access token. Anyone who knows, guesses, or receives an event URL can open its menu directly. The QR code provides a convenient link; scanning it is not required for access. The root page does not list events.
 
@@ -514,3 +513,9 @@ food_trucks:
 ```
 
 Each item requires an ID and a name in every configured language. Prices use the event's configured currency and the same localized formatting as other menu items: omit `price` to hide it, use `0` for free items, or use `price_normal` and `price_large` for sizes. `sold_out: true` shows the sold-out badge instead of prices. Descriptions are optional and require every configured translation when present. Omit `items` or use `items: []` to hide the list. Both example menus include priced food truck dishes.
+
+## License
+
+Copyright © 2026 Kavod'or.
+
+Licensed under [AGPL-3.0](LICENSE).

@@ -51,6 +51,11 @@ type availabilityView struct {
 	Languages  []string
 }
 
+type variantsView struct {
+	Variants   []menu.Localized
+	Conference menu.Conference
+}
+
 type statusView struct {
 	SoldOut    bool
 	Conference menu.Conference
@@ -117,6 +122,9 @@ func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, con
 		},
 		"availability": func(item menu.Item, conference menu.Conference) availabilityView {
 			return availabilityView{Item: item, Conference: conference, Languages: conference.LanguageCodes()}
+		},
+		"variants": func(item menu.Item, conference menu.Conference) variantsView {
+			return variantsView{Variants: item.Variants, Conference: conference}
 		},
 		"status": func(soldOut bool, conference menu.Conference) statusView {
 			return statusView{SoldOut: soldOut, Conference: conference}

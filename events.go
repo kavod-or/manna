@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -184,9 +185,19 @@ func loadEventEntries(content fs.FS) ([]eventEntry, error) {
 			return nil, fmt.Errorf("duplicate event path %q", entry.Path)
 		}
 		seen[entry.Path] = true
-		if !fs.ValidPath(entry.Menu) || strings.Contains(entry.Menu, `\`) {
-			return nil, fmt.Errorf("invalid menu path %q", entry.Menu)
+		if err := validateEventMenuPath(entry.Menu); err != nil {
+			return nil, err
 		}
 	}
 	return manifest.Events, nil
+}
+
+func validateEventMenuPath(name string) error {
+	if !fs.ValidPath(name) || strings.Contains(name, `\`) || path.Ext(name) != ".yaml" {
+		return fmt.Errorf("invalid menu path %q: must be a relative .yaml file", name)
+	}
+	if name == eventManifestFile || name == eventManifestTemplateFile {
+		return fmt.Errorf("invalid menu path %q: event manifests cannot be used as menus", name)
+	}
+	return nil
 }

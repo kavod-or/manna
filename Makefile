@@ -8,7 +8,7 @@ run:
 	go run .
 
 dev:
-	CONTENT_DIR=content go tool -modfile=dev.mod air --build.include_ext "go,html,css,js,yaml"
+	MANNA_ADMIN_PASSWORD="$${MANNA_ADMIN_PASSWORD:-manna-local-development}" CONTENT_DIR=content go tool -modfile=dev.mod air --build.include_ext "go,html,css,js,yaml"
 
 build:
 	go build -o bin/manna .

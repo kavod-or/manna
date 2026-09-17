@@ -289,6 +289,49 @@ func TestPricesInRealTemplate(t *testing.T) {
 	}
 }
 
+func TestItemVariantsRenderEverywhere(t *testing.T) {
+	item := menu.Item{
+		Name: menu.Localized{DE: "Joghurt", EN: "Yoghurt", Other: map[string]string{"ru": "Йогурт"}},
+		Variants: []menu.Localized{
+			{DE: "Kirsche", EN: "Cherry", Other: map[string]string{"ru": "Вишня"}},
+			{DE: "Mango", EN: "Mango", Other: map[string]string{"ru": "Манго"}},
+		},
+	}
+	config := menu.Config{
+		Conference: menu.Conference{Languages: []string{"de", "en", "ru"}},
+		Permanent: menu.Permanent{
+			Coffee: []menu.Item{item},
+			Drinks: []menu.Item{item},
+			Snacks: []menu.Item{item},
+		},
+		Days: []menu.Day{{
+			FoodTrucks: []menu.FoodTruck{{Items: []menu.Item{item}}},
+			Services:   []menu.Service{{Items: []menu.Item{item}}},
+		}},
+	}
+	handler, err := newTestServer(func() (menu.Config, error) { return config, nil }, os.DirFS("../.."), fstest.MapFS{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
+	body := response.Body.String()
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d", response.Code)
+	}
+	if got := strings.Count(body, `class="item-variants"`); got != 6 {
+		t.Fatalf("variant lists = %d, want 6", got)
+	}
+	for _, text := range []string{"Kirsche", "Cherry", "Вишня", "Манго"} {
+		if got := strings.Count(body, text); got != 6 {
+			t.Errorf("%q count = %d, want 6", text, got)
+		}
+	}
+	if got := strings.Count(body, " · "); got < 6 {
+		t.Errorf("variant separators = %d, want at least 6", got)
+	}
+}
+
 func TestConfiguredCurrencyRenders(t *testing.T) {
 	price := menu.Price(450)
 	for _, test := range []struct {

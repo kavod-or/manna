@@ -7,7 +7,7 @@
   <meta name="description" content="Manna - The menu plan">
   <title>Manna · {{text .Conference.Name (primary .Conference)}}</title>
   <link rel="icon" href="/static/favicon.png?v=2" type="image/png" sizes="64x64">
-  <link rel="stylesheet" href="/static/styles.css?v=30">
+  <link rel="stylesheet" href="/static/styles.css?v=31">
   <script src="/static/app.js?v=25" defer></script>
 </head>
 <body data-timezone="{{.Conference.Zone}}" data-easter-egg-mode="{{.Conference.EffectiveEasterEggMode}}">
@@ -76,6 +76,7 @@
                   {{template "localized" (localize .Name $.Conference)}}
                 </h3>
                 {{template "availability" (availability . $.Conference)}}
+                {{template "variants" (variants . $.Conference)}}
                 {{if not .Description.Empty}}
                 <p>
                   {{template "localized" (localize .Description $.Conference)}}
@@ -121,6 +122,7 @@
                   <li>
                     <strong>{{template "localized" (localize .Name $.Conference)}}</strong>
                     {{template "availability" (availability . $.Conference)}}
+                    {{template "variants" (variants . $.Conference)}}
                     {{if not .Description.Empty}}<small>{{template "localized" (localize .Description $.Conference)}}</small>{{end}}
                   </li>
                   {{end}}
@@ -152,7 +154,7 @@
             </h3>
             <ul>
               {{range $.Permanent.Coffee}}
-              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}</li>
+              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}{{template "variants" (variants . $.Conference)}}</li>
               {{end}}
             </ul>
           </div>
@@ -165,7 +167,7 @@
             </h3>
             <ul>
               {{range $.Permanent.Drinks}}
-              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}</li>
+              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}{{template "variants" (variants . $.Conference)}}</li>
               {{end}}
             </ul>
           </div>
@@ -178,7 +180,7 @@
             </h3>
             <ul>
               {{range $.Permanent.Snacks}}
-              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}</li>
+              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}{{template "variants" (variants . $.Conference)}}</li>
               {{end}}
             </ul>
           </div>
@@ -211,6 +213,7 @@
                 <div>
                   <strong>{{template "localized" (localize .Name $.Conference)}}</strong>
                   {{template "availability" (availability . $.Conference)}}
+                  {{template "variants" (variants . $.Conference)}}
                   {{if not .Description.Empty}}<small>{{template "localized" (localize .Description $.Conference)}}</small>{{end}}
                 </div>
                 {{end}}
@@ -241,6 +244,8 @@
 {{define "sold-out"}}{{if .SoldOut}}<span class="sold-out">{{template "localized" (ui "sold_out" .Conference)}}</span>{{end}}{{end}}
 
 {{define "availability"}}{{if .Item.SoldOut}}{{template "sold-out" (status true .Conference)}}{{else}}{{template "prices" .}}{{end}}{{end}}
+
+{{define "variants"}}{{if .Variants}}<span class="item-variants">{{range $index, $variant := .Variants}}{{if $index}} · {{end}}{{template "localized" (localize $variant $.Conference)}}{{end}}</span>{{end}}{{end}}
 
 {{define "payment"}}
 {{if .Present}}
