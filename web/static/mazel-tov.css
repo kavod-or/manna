@@ -8,7 +8,7 @@
 .mazel-tov-glass {
   z-index: 10000;
   inset: 0;
-  background: rgb(222 235 244 / 8%) url('/static/mazel-tov-glass.png?v=1') center / cover no-repeat;
+  background: rgb(222 235 244 / 8%) url('/static/mazel-tov-glass.png') center / cover no-repeat;
   backdrop-filter: saturate(0.75) contrast(1.08);
   animation: glass-impact 260ms ease-out both;
 }

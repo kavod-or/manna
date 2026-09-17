@@ -147,7 +147,7 @@
     clicks = 0;
     loading = true;
     try {
-      const {startManna} = await import('/static/manna.js?v=2');
+      const {startManna} = await import('/static/manna.js');
       startManna();
     } catch {
       // A failed optional download must not affect the menu. Five clicks retry.
@@ -211,7 +211,7 @@
       loading = true;
       const link = document.createElement('link');
       link.rel = 'stylesheet';
-      link.href = '/static/girly.css?v=9';
+      link.href = '/static/girly.css';
       link.onload = () => {
         loading = false;
         theme = link;
@@ -224,7 +224,7 @@
           heartClicks = 0;
           heartLoading = true;
           try {
-            const {startHearts} = await import('/static/hearts.js?v=4');
+            const {startHearts} = await import('/static/hearts.js');
             if (document.documentElement.classList.contains('girly-vibes')) heartStop = startHearts();
           } catch {
             // The optional effect can be retried without interrupting the menu.
@@ -257,7 +257,7 @@
         if (!stylesheetPromise) {
           const link = document.createElement('link');
           link.rel = 'stylesheet';
-          link.href = '/static/mazel-tov.css?v=1';
+          link.href = '/static/mazel-tov.css';
           stylesheetPromise = new Promise((resolve, reject) => {
             link.onload = resolve;
             link.onerror = () => {
@@ -270,7 +270,7 @@
         }
         const [, module] = await Promise.all([
           stylesheetPromise,
-          import('/static/mazel-tov.js?v=3'),
+          import('/static/mazel-tov.js'),
         ]);
         stop = module.startMazelTov(() => { stop = null; });
       } catch {

@@ -6,15 +6,15 @@
   <meta name="theme-color" content="#153b31">
   <meta name="description" content="Manna - The menu plan">
   <title>Manna · {{text .Conference.Name (primary .Conference)}}</title>
-  <link rel="icon" href="/static/favicon.png?v=2" type="image/png" sizes="64x64">
-  <link rel="stylesheet" href="/static/styles.css?v=31">
-  <script src="/static/app.js?v=25" defer></script>
+  <link rel="icon" href="{{assetURL "favicon.png"}}" type="image/png" sizes="64x64">
+  <link rel="stylesheet" href="{{assetURL "styles.css"}}">
+  <script src="{{assetURL "app.js"}}" defer></script>
 </head>
 <body data-timezone="{{.Conference.Zone}}" data-easter-egg-mode="{{.Conference.EffectiveEasterEggMode}}">
   <div class="site-shell">
     <header class="site-header">
       <a class="brand" href="{{.EventPath}}" aria-label="{{if .Conference.Logo}}{{text .Conference.Name (primary .Conference)}}{{else}}Manna{{end}}">
-        <img class="brand-logo" src="{{if .Conference.Logo}}/branding{{.EventPath}}{{else}}/static/logo.png?v=3{{end}}" alt="{{if .Conference.Logo}}{{text .Conference.Name (primary .Conference)}}{{else}}Manna{{end}}" width="512" height="168">
+        <img class="brand-logo" src="{{if .Conference.Logo}}/branding{{.EventPath}}{{else}}{{assetURL "logo.png"}}{{end}}" alt="{{if .Conference.Logo}}{{text .Conference.Name (primary .Conference)}}{{else}}Manna{{end}}" width="512" height="168">
       </a>
 
       <div class="header-tools">

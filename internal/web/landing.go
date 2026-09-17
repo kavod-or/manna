@@ -6,12 +6,12 @@ const landingPage = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Manna</title>
-  <link rel="icon" href="/static/favicon.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/styles.css?v=30">
+  <link rel="icon" href="{{assetURL "favicon.png"}}" type="image/png">
+  <link rel="stylesheet" href="{{assetURL "styles.css"}}">
 </head>
 <body class="landing-page">
   <main class="notice-card">
-    <img src="/static/logo.png?v=3" alt="Manna" width="512" height="168">
+    <img src="{{assetURL "logo.png"}}" alt="Manna" width="512" height="168">
     <h1>Dein Menü wartet schon.</h1>
     <p>Bitte scanne den QR-Code vor Ort, um das Menü zu öffnen.</p>
     <div class="notice-translation" lang="en">

@@ -7,12 +7,12 @@ const notFoundPage = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>404 · Manna</title>
-  <link rel="icon" href="/static/favicon.png?v=2" type="image/png">
-  <link rel="stylesheet" href="/static/styles.css?v=30">
+  <link rel="icon" href="{{assetURL "favicon.png"}}" type="image/png">
+  <link rel="stylesheet" href="{{assetURL "styles.css"}}">
 </head>
 <body class="landing-page">
   <main class="notice-card">
-    <img src="/static/logo.png?v=3" alt="Manna" width="512" height="168">
+    <img src="{{assetURL "logo.png"}}" alt="Manna" width="512" height="168">
     <p class="error-code">404</p>
     <h1>Hier ist noch nicht gedeckt.</h1>
     <p>Diese Seite gibt es nicht. Scanne den QR-Code vor Ort, um das richtige Menü zu öffnen.</p>

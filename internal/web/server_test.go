@@ -158,7 +158,7 @@ func TestCompressesHTMLWhenAccepted(t *testing.T) {
 
 func TestStaticAssetsUseLongLivedCache(t *testing.T) {
 	templateFS := fstest.MapFS{
-		"web/templates/index.html": {Data: []byte(`{{define "index.html"}}ok{{end}}`)},
+		"web/templates/index.html": {Data: []byte(`{{define "index.html"}}<link href="{{assetURL "styles.css"}}">{{end}}`)},
 	}
 	staticFS := fstest.MapFS{"styles.css": {Data: []byte("body{}")}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -167,7 +167,25 @@ func TestStaticAssetsUseLongLivedCache(t *testing.T) {
 		t.Fatalf("New returned an error: %v", err)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "/static/styles.css?v=1", nil)
+	version := fingerprintStaticAssets(staticFS)["styles.css"]
+	wantURL := "/static/styles.css?v=" + version
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/test", nil))
+	if !strings.Contains(page.Body.String(), `href="`+wantURL+`"`) {
+		t.Fatalf("page does not use fingerprinted asset URL: %s", page.Body.String())
+	}
+
+	redirect := httptest.NewRecorder()
+	handler.ServeHTTP(redirect, httptest.NewRequest(http.MethodGet, "/static/styles.css", nil))
+	if redirect.Code != http.StatusTemporaryRedirect || redirect.Header().Get("Location") != wantURL {
+		t.Fatalf("unversioned asset redirect = %d %q, want 307 %q", redirect.Code, redirect.Header().Get("Location"), wantURL)
+	}
+	if redirect.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("redirect Cache-Control = %q, want no-store", redirect.Header().Get("Cache-Control"))
+	}
+
+	request := httptest.NewRequest(http.MethodGet, wantURL, nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -176,6 +194,11 @@ func TestStaticAssetsUseLongLivedCache(t *testing.T) {
 	}
 	if got := response.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
 		t.Fatalf("Cache-Control = %q", got)
+	}
+
+	changed := fstest.MapFS{"styles.css": {Data: []byte("body{color:red}")}}
+	if fingerprintStaticAssets(changed)["styles.css"] == version {
+		t.Fatal("asset content change did not change its fingerprint")
 	}
 }
 

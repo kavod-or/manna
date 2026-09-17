@@ -10,7 +10,7 @@ Manna is a small, responsive conference catering guide. It supports multiple eve
 - separate event URLs mapped to menu files in an ignored runtime `content/events.yaml`, with `content/events.example.yaml` as the tracked template
 - YAML as the single source of truth for menu content
 - templates and assets embedded in one Go binary
-- gzip compression and long-lived browser caching for slow or crowded Wi-Fi
+- gzip compression and content-hashed, long-lived browser caching for slow or crowded Wi-Fi
 - health endpoint and secure HTTP headers
 - multi-stage Docker image running as a non-root user
 - hardened Docker Compose configuration with a read-only container filesystem
@@ -19,7 +19,7 @@ Manna is a small, responsive conference catering guide. It supports multiple eve
 
 ### Local development, including the admin editor
 
-Go 1.26.8 or newer is required. Start the development server with automatic reload:
+Go 1.27.1 or newer is required. Start the development server with automatic reload:
 
 ```bash
 make dev
@@ -312,7 +312,7 @@ Set `serious_mode: true` to disable the selected easter egg entirely. When `east
 
 ## Local development
 
-Go 1.26.8 or newer is required. Run directly with embedded content:
+Go 1.27.1 or newer is required. Run directly with embedded content:
 
 ```bash
 go mod download

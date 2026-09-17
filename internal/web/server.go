@@ -3,6 +3,8 @@ package web
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"html/template"
 	"io"
 	"io/fs"
@@ -21,13 +23,14 @@ import (
 const maxBrandingLogoSize = 5 << 20
 
 type server struct {
-	events      EventsLoader
-	page        *template.Template
-	static      http.Handler
-	adminStatic http.Handler
-	content     fs.FS
-	admin       admincontent.Content
-	logger      *slog.Logger
+	events        EventsLoader
+	page          *template.Template
+	static        http.Handler
+	adminStatic   http.Handler
+	assetVersions map[string]string
+	content       fs.FS
+	admin         admincontent.Content
+	logger        *slog.Logger
 }
 
 type EventsLoader func() (map[string]menu.Loader, error)
@@ -86,6 +89,16 @@ var interfaceText = map[string]menu.Localized{
 	"large":        interfaceTranslation("Groß", "Large", "Большой"),
 }
 
+var publicStaticAssets = map[string]struct{}{
+	"hearts.js": {}, "girly.css": {}, "mazel-tov.js": {}, "mazel-tov.css": {},
+	"mazel-tov-glass.png": {}, "manna.js": {}, "app.js": {}, "styles.css": {},
+	"logo.png": {}, "favicon.png": {},
+}
+
+var adminStaticAssets = map[string]struct{}{
+	"admin.css": {}, "admin.js": {},
+}
+
 func interfaceTranslation(de, en, ru string) menu.Localized {
 	return menu.Localized{DE: de, EN: en, Other: map[string]string{"ru": ru}}
 }
@@ -99,8 +112,15 @@ func NewDynamic(events EventsLoader, templates fs.FS, static fs.FS, content fs.F
 }
 
 func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, content fs.FS, logger *slog.Logger, adminOptions AdminOptions) (http.Handler, error) {
+	assetVersions := fingerprintStaticAssets(static)
 	functions := template.FuncMap{
-		"version":   func() string { return version.Current },
+		"version": func() string { return version.Current },
+		"assetURL": func(name string) string {
+			return versionedAssetURL("/static/", name, assetVersions)
+		},
+		"adminAssetURL": func(name string) string {
+			return versionedAssetURL("/admin/static/", name, assetVersions)
+		},
 		"languages": func(conference menu.Conference) []string { return conference.LanguageCodes() },
 		"primary":   func(conference menu.Conference) string { return conference.LanguageCodes()[0] },
 		"direction": func(language string) string {
@@ -164,13 +184,14 @@ func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, con
 		}
 	}
 	s := &server{
-		events:      events,
-		page:        page,
-		static:      http.StripPrefix("/static/", http.FileServer(http.FS(static))),
-		adminStatic: http.StripPrefix("/admin/static/", http.FileServer(http.FS(static))),
-		content:     content,
-		admin:       adminOptions.Content,
-		logger:      logger,
+		events:        events,
+		page:          page,
+		static:        http.StripPrefix("/static/", http.FileServer(http.FS(static))),
+		adminStatic:   http.StripPrefix("/admin/static/", http.FileServer(http.FS(static))),
+		assetVersions: assetVersions,
+		content:       content,
+		admin:         adminOptions.Content,
+		logger:        logger,
 	}
 
 	mux := http.NewServeMux()
@@ -244,13 +265,47 @@ func (s *server) brandingLogo(writer http.ResponseWriter, request *http.Request)
 // Only shared presentation assets are public. Never expose a directory listing,
 // source maps, or configuration files accidentally placed in the static folder.
 func (s *server) asset(writer http.ResponseWriter, request *http.Request) {
-	switch request.URL.Path {
-	case "/static/hearts.js", "/static/girly.css", "/static/mazel-tov.js", "/static/mazel-tov.css", "/static/mazel-tov-glass.png", "/static/manna.js", "/static/app.js", "/static/styles.css", "/static/logo.png", "/static/favicon.png":
-		cacheStatic(s.static).ServeHTTP(writer, request)
-	default:
+	name := strings.TrimPrefix(request.URL.Path, "/static/")
+	if _, ok := publicStaticAssets[name]; !ok {
 		writer.Header().Set("Cache-Control", "no-store")
 		http.NotFound(writer, request)
+		return
 	}
+	if version := s.assetVersions[name]; version != "" && !hasCanonicalAssetVersion(request, version) {
+		writer.Header().Set("Cache-Control", "no-store")
+		http.Redirect(writer, request, versionedAssetURL("/static/", name, s.assetVersions), http.StatusTemporaryRedirect)
+		return
+	}
+	cacheStatic(s.static).ServeHTTP(writer, request)
+}
+
+func fingerprintStaticAssets(static fs.FS) map[string]string {
+	versions := make(map[string]string, len(publicStaticAssets)+len(adminStaticAssets))
+	for _, allowed := range []map[string]struct{}{publicStaticAssets, adminStaticAssets} {
+		for name := range allowed {
+			content, err := fs.ReadFile(static, name)
+			if err != nil {
+				continue
+			}
+			digest := sha256.Sum256(content)
+			versions[name] = hex.EncodeToString(digest[:])
+		}
+	}
+	return versions
+}
+
+func versionedAssetURL(prefix, name string, versions map[string]string) string {
+	url := prefix + name
+	if version := versions[name]; version != "" {
+		return url + "?v=" + version
+	}
+	return url
+}
+
+func hasCanonicalAssetVersion(request *http.Request, version string) bool {
+	query := request.URL.Query()
+	values, ok := query["v"]
+	return ok && len(query) == 1 && len(values) == 1 && values[0] == version
 }
 
 func (s *server) index(writer http.ResponseWriter, request *http.Request) {

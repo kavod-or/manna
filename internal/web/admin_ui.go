@@ -14,10 +14,9 @@ func (s *server) adminPage(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) adminAsset(writer http.ResponseWriter, request *http.Request) {
-	switch request.PathValue("asset") {
-	case "admin.css", "admin.js":
+	if _, ok := adminStaticAssets[request.PathValue("asset")]; ok {
 		s.adminStatic.ServeHTTP(writer, request)
-	default:
-		http.NotFound(writer, request)
+		return
 	}
+	http.NotFound(writer, request)
 }
