@@ -1,8 +1,7 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 
-FROM golang:1.27.1-alpine AS build
+FROM golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS build
 WORKDIR /src
-RUN apk upgrade --no-cache
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -10,9 +9,8 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/manna .
 
-FROM alpine:3.22.5
-RUN apk upgrade --no-cache \
-    && addgroup -S manna \
+FROM alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+RUN addgroup -S manna \
     && adduser -S -G manna -u 10001 manna
 
 WORKDIR /app
