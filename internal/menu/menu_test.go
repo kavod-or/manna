@@ -337,6 +337,52 @@ func TestFoodTrucks(t *testing.T) {
 	}
 }
 
+func TestFoodTruckMultipleTimeWindows(t *testing.T) {
+	truck := `
+    food_trucks:
+      - id: pita
+        name: {de: Pita-Pause, en: Pita Stop}
+        description: {de: Frische Pita, en: Fresh pita}
+        location: {de: Innenhof, en: Courtyard}
+        times:
+          - from: "11:30"
+            until: "14:00"
+          - from: "17:00"
+            until: "20:00"
+`
+	source := strings.Replace(validMenu, "    services:", truck+"    services:", 1)
+	config, err := Decode(strings.NewReader(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := config.Days[0].FoodTrucks[0].Times; len(got) != 2 || got[0].From != "11:30" || got[1].Until != "20:00" {
+		t.Fatalf("times = %#v", got)
+	}
+
+	for _, replacement := range []string{
+		`times:
+          - from: "25:00"
+            until: "14:00"`,
+		`times:
+          - from: "14:00"
+            until: "11:30"`,
+		`from: "11:30"
+        until: "14:00"
+        times:
+          - from: "17:00"
+            until: "20:00"`,
+	} {
+		invalid := strings.Replace(source, `times:
+          - from: "11:30"
+            until: "14:00"
+          - from: "17:00"
+            until: "20:00"`, replacement, 1)
+		if _, err := Decode(strings.NewReader(invalid)); err == nil {
+			t.Fatalf("accepted invalid time windows:\n%s", replacement)
+		}
+	}
+}
+
 func TestSoldOut(t *testing.T) {
 	for _, value := range []string{"true", "false"} {
 		source := strings.Replace(validMenu, "- id: water", "- id: water\n      sold_out: "+value, 1)

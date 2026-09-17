@@ -407,6 +407,35 @@ func TestFoodTrucksInExampleMenu(t *testing.T) {
 				t.Errorf("missing %q", text)
 			}
 		}
+		for _, window := range truck.Times {
+			for _, text := range []string{window.From, window.Until} {
+				if !strings.Contains(body, text) {
+					t.Errorf("missing food truck time %q", text)
+				}
+			}
+		}
+	}
+}
+
+func TestFoodTruckMultipleTimeWindowsRender(t *testing.T) {
+	config := menu.Config{Days: []menu.Day{{FoodTrucks: []menu.FoodTruck{{
+		Name:  menu.Localized{DE: "Pita-Pause", EN: "Pita Stop"},
+		Times: []menu.TimeWindow{{From: "11:30", Until: "14:00"}, {From: "17:00", Until: "20:00"}},
+	}}}}}
+	handler, err := newTestServer(func() (menu.Config, error) { return config, nil }, os.DirFS("../.."), fstest.MapFS{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
+	body := response.Body.String()
+	if strings.Count(body, `class="food-truck-time"`) != 1 {
+		t.Fatal("expected one time row for one food truck")
+	}
+	for _, fragment := range []string{`datetime="11:30"`, `datetime="14:00"`, `datetime="17:00"`, `datetime="20:00"`, ` · `} {
+		if !strings.Contains(body, fragment) {
+			t.Errorf("missing %q", fragment)
+		}
 	}
 }
 

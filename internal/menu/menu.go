@@ -58,14 +58,20 @@ type Day struct {
 }
 
 type FoodTruck struct {
-	Items       []Item    `yaml:"items"`
-	Payment     Localized `yaml:"payment"`
-	ID          string    `yaml:"id"`
-	Name        Localized `yaml:"name"`
-	Description Localized `yaml:"description"`
-	Location    Localized `yaml:"location"`
-	From        string    `yaml:"from"`
-	Until       string    `yaml:"until"`
+	Items       []Item       `yaml:"items"`
+	Times       []TimeWindow `yaml:"times"`
+	Payment     Localized    `yaml:"payment"`
+	ID          string       `yaml:"id"`
+	Name        Localized    `yaml:"name"`
+	Description Localized    `yaml:"description"`
+	Location    Localized    `yaml:"location"`
+	From        string       `yaml:"from"`
+	Until       string       `yaml:"until"`
+}
+
+type TimeWindow struct {
+	From  string `yaml:"from"`
+	Until string `yaml:"until"`
 }
 
 type Service struct {
@@ -205,14 +211,17 @@ func (config Config) Validate() error {
 					return err
 				}
 			}
-			if err := validateTime(path+".from", truck.From); err != nil {
+			if len(truck.Times) > 0 {
+				if truck.From != "" || truck.Until != "" {
+					return fmt.Errorf("%s: use either times or from/until", path)
+				}
+				for timeIndex, window := range truck.Times {
+					if err := validateTimeWindow(fmt.Sprintf("%s.times[%d]", path, timeIndex), window.From, window.Until); err != nil {
+						return err
+					}
+				}
+			} else if err := validateTimeWindow(path, truck.From, truck.Until); err != nil {
 				return err
-			}
-			if err := validateTime(path+".until", truck.Until); err != nil {
-				return err
-			}
-			if truck.Until <= truck.From {
-				return fmt.Errorf("%s.until must be after from on the same day", path)
 			}
 		}
 		for serviceIndex, service := range day.Services {
@@ -325,6 +334,19 @@ func validateOptionalLocalized(path string, value Localized, languages []string)
 func validateTime(path, value string) error {
 	if parsed, err := time.Parse("15:04", value); err != nil || parsed.Format("15:04") != value {
 		return fmt.Errorf("%s must use HH:MM", path)
+	}
+	return nil
+}
+
+func validateTimeWindow(path, from, until string) error {
+	if err := validateTime(path+".from", from); err != nil {
+		return err
+	}
+	if err := validateTime(path+".until", until); err != nil {
+		return err
+	}
+	if until <= from {
+		return fmt.Errorf("%s.until must be after from on the same day", path)
 	}
 	return nil
 }

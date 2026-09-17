@@ -104,7 +104,13 @@
             <div class="food-truck-grid">
               {{range $day.FoodTrucks}}
               <article class="food-truck-card">
+                {{if .Times}}
+                <p class="food-truck-time">
+                  {{range $index, $window := .Times}}{{if $index}} · {{end}}<time datetime="{{$window.From}}">{{$window.From}}</time>–<time datetime="{{$window.Until}}">{{$window.Until}}</time>{{end}}
+                </p>
+                {{else}}
                 <p class="food-truck-time"><time datetime="{{.From}}">{{.From}}</time>–<time datetime="{{.Until}}">{{.Until}}</time></p>
+                {{end}}
                 <h3>{{template "localized" (localize .Name $.Conference)}}</h3>
                 <p>{{template "localized" (localize .Description $.Conference)}}</p>
                 <p class="food-truck-location">{{template "localized" (ui "location" $.Conference)}}: {{template "localized" (localize .Location $.Conference)}}</p>

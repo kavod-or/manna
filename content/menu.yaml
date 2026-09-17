@@ -134,8 +134,11 @@ days:
           en: Freshly baked pita with crisp falafel, hummus and crunchy salad.
           ru: Свежая пита с хрустящим фалафелем, хумусом и свежим салатом.
         location: {de: Innenhof · neben dem Haupteingang, en: Courtyard · beside the main entrance, ru: Внутренний двор · рядом с главным входом}
-        from: "11:30"
-        until: "15:00"
+        times:
+          - from: "11:30"
+            until: "15:00"
+          - from: "17:00"
+            until: "20:30"
       - id: pizza_van
         items:
           - id: margherita
@@ -148,8 +151,9 @@ days:
           en: Stone-baked pizza with tomato and mozzarella or mushrooms and fresh rocket.
           ru: Пицца из каменной печи с томатами и моцареллой или грибами и свежей рукколой.
         location: {de: Vorplatz · am Brunnen, en: Forecourt · by the fountain, ru: Площадь перед зданием · у фонтана}
-        from: "17:00"
-        until: "20:30"
+        times:
+          - from: "17:00"
+            until: "20:30"
     services:
       - id: lunch
         title:
@@ -247,8 +251,9 @@ days:
           en: Warm corn tortillas with roasted cauliflower, black beans and lime salsa.
           ru: Тёплые кукурузные тортильи с запечённой цветной капустой, чёрной фасолью и лаймовой сальсой.
         location: {de: Innenhof · neben dem Haupteingang, en: Courtyard · beside the main entrance, ru: Внутренний двор · рядом с главным входом}
-        from: "11:30"
-        until: "15:00"
+        times:
+          - from: "11:30"
+            until: "15:00"
     services:
       - id: breakfast
         title:

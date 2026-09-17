@@ -412,13 +412,16 @@ Add an optional `food_trucks` list to each entry in `days`, alongside `services`
       name: {de: Pita-Pause, en: The Pita Stop}
       description: {de: Frische Pita und Falafel., en: Fresh pita and falafel.}
       location: {de: Innenhof, en: Courtyard}
-      from: "11:30"
-      until: "15:00"
+      times:
+        - from: "11:30"
+          until: "15:00"
+        - from: "17:00"
+          until: "20:30"
   services:
     # Existing conference meals go here.
 ```
 
-Add as many trucks as needed per day, using unique IDs within that day. Names, descriptions, and locations require every configured language. Times use `HH:MM`, with `until` later than `from` on the same day. Trucks appear in a separate section for the selected day. Omit `food_trucks` or use `food_trucks: []` to hide that day's section.
+Add as many trucks as needed per day, using unique IDs within that day. Names, descriptions, and locations require every configured language. A truck's `times` list may contain one or more serving windows. Times use `HH:MM`, with `until` later than `from` on the same day. The legacy single `from`/`until` pair remains supported, but must not be combined with `times`. Trucks appear in a separate section for the selected day. Omit `food_trucks` or use `food_trucks: []` to hide that day's section.
 
 ## Sold out
 
@@ -483,7 +486,7 @@ Each food truck can also have its own optional `payment` notice, shown inside it
 food_trucks:
   - id: pita_stop
     payment: {de: Nur Barzahlung, en: Cash only}
-    # Keep the truck's name, description, location, from, and until.
+    # Keep the truck's name, description, location, and serving times.
 ```
 
 Truck notices are independent of the conference notice; no payment method is inferred or inherited. Both example menus demonstrate cash-only, card payment, and cash-and-card trucks.

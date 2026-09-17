@@ -116,8 +116,11 @@ days:
           de: Frisch gebackene Pita mit knusprigen Falafeln, Hummus und knackigem Salat.
           en: Freshly baked pita with crisp falafel, hummus and crunchy salad.
         location: {de: Innenhof · neben dem Haupteingang, en: Courtyard · beside the main entrance}
-        from: "11:30"
-        until: "15:00"
+        times:
+          - from: "11:30"
+            until: "15:00"
+          - from: "17:00"
+            until: "20:30"
       - id: pizza_van
         items:
           - id: margherita
@@ -129,8 +132,9 @@ days:
           de: Steinofenpizza mit Tomate und Mozzarella oder Pilzen und frischem Rucola.
           en: Stone-baked pizza with tomato and mozzarella or mushrooms and fresh rocket.
         location: {de: Vorplatz · am Brunnen, en: Forecourt · by the fountain}
-        from: "17:00"
-        until: "20:30"
+        times:
+          - from: "17:00"
+            until: "20:30"
     services:
       - id: lunch
         title:
@@ -213,8 +217,9 @@ days:
           de: Warme Maistortillas mit geröstetem Blumenkohl, schwarzen Bohnen und Limettensalsa.
           en: Warm corn tortillas with roasted cauliflower, black beans and lime salsa.
         location: {de: Innenhof · neben dem Haupteingang, en: Courtyard · beside the main entrance}
-        from: "11:30"
-        until: "15:00"
+        times:
+          - from: "11:30"
+            until: "15:00"
     services:
       - id: breakfast
         title:
