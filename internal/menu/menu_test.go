@@ -44,6 +44,32 @@ func TestDecodeRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestConferenceHidePrices(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{"true", true},
+		{"false", false},
+	} {
+		source := strings.Replace(validMenu, "conference:", "conference:\n  hide_prices: "+test.value, 1)
+		config, err := Decode(strings.NewReader(source))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if config.Conference.HidePrices != test.want {
+			t.Fatalf("hide_prices: %s decoded as %t", test.value, config.Conference.HidePrices)
+		}
+	}
+	config, err := Decode(strings.NewReader(validMenu))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Conference.HidePrices {
+		t.Fatal("prices hidden when flag is omitted")
+	}
+}
+
 func TestAdditionalLanguages(t *testing.T) {
 	source := strings.NewReplacer(
 		"conference:", "conference:\n  languages: [de, en, fr]",

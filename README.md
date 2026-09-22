@@ -377,6 +377,8 @@ Do not use a broad network such as `0.0.0.0/0`. Only a proxy that overwrites the
 
 ## Optional prices
 
+Set `conference.hide_prices: true` in an event's menu YAML to hide every price, including normal and large size labels, while leaving all menu items visible. Prices remain in the file so you can edit them. Set the flag to `false` or remove it when they are ready; prices are shown by default. With `CONTENT_DIR`, the change reloads with the menu.
+
 Add `price` to an individual meal item or a permanent coffee/drink/snack in the event's menu file. Services such as breakfast, lunch, and dinner provide the title and short description; their items carry the prices:
 
 ```yaml

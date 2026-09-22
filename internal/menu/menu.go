@@ -28,6 +28,7 @@ type Config struct {
 
 type Conference struct {
 	Currency      Currency  `yaml:"currency"`
+	HidePrices    bool      `yaml:"hide_prices"`
 	Payment       Localized `yaml:"payment"`
 	Languages     []string  `yaml:"languages"`
 	SeriousMode   bool      `yaml:"serious_mode"`

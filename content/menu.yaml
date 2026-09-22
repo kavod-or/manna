@@ -3,6 +3,8 @@
 # Add sold_out: true to any meal or item to show the localized sold-out label.
 conference:
   currency: dollar
+  # Set hide_prices: true to keep all prices in this file while hiding them from guests.
+  # Remove it or set it to false when prices are ready to publish.
   # Add language codes here and provide each translation throughout this file.
   languages: [de, en, ru]
   serious_mode: false

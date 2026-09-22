@@ -312,6 +312,50 @@ func TestPricesInRealTemplate(t *testing.T) {
 	}
 }
 
+func TestHidePricesKeepsMenuVisible(t *testing.T) {
+	single, normal, large := menu.Price(123), menu.Price(456), menu.Price(789)
+	name := func(de, en string) menu.Localized { return menu.Localized{DE: de, EN: en} }
+	config := menu.Config{
+		Conference: menu.Conference{HidePrices: true},
+		Permanent: menu.Permanent{
+			Coffee: []menu.Item{{Name: name("Kaffee", "Coffee"), PriceNormal: &normal, PriceLarge: &large}},
+			Drinks: []menu.Item{{Name: name("Wasser", "Water"), Price: &single}},
+			Snacks: []menu.Item{{Name: name("Kuchen", "Cake"), Price: &single}},
+		},
+		Days: []menu.Day{{FoodTrucks: []menu.FoodTruck{{Items: []menu.Item{{Name: name("Pizza", "Pizza"), Price: &single}}}}, Services: []menu.Service{{Items: []menu.Item{{Name: name("Suppe", "Soup"), PriceNormal: &normal, PriceLarge: &large}}}}}},
+	}
+	handler, err := newTestServer(func() (menu.Config, error) { return config, nil }, os.DirFS("../.."), fstest.MapFS{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func() string {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d", response.Code)
+		}
+		return response.Body.String()
+	}
+	body := render()
+	for _, name := range []string{"Coffee", "Water", "Cake", "Pizza", "Soup"} {
+		if !strings.Contains(body, ">"+name+"<") {
+			t.Errorf("menu item %q missing with prices hidden", name)
+		}
+	}
+	for _, marker := range []string{`class="price"`, `class="size-prices"`, `class="size-price"`, "€1.23", "€4.56", "€7.89", ">Regular<", ">Large<"} {
+		if strings.Contains(body, marker) {
+			t.Errorf("%q visible with prices hidden", marker)
+		}
+	}
+	config.Conference.HidePrices = false
+	body = render()
+	for _, price := range []string{"€1.23", "€4.56", "€7.89", ">Regular<", ">Large<"} {
+		if !strings.Contains(body, price) {
+			t.Errorf("%q missing after prices enabled", price)
+		}
+	}
+}
+
 func TestItemVariantsRenderEverywhere(t *testing.T) {
 	item := menu.Item{
 		Name: menu.Localized{DE: "Joghurt", EN: "Yoghurt", Other: map[string]string{"ru": "Йогурт"}},

@@ -239,7 +239,7 @@
 
 {{define "price"}}{{$view := .}}{{if .Price}}<span class="price">{{range $index, $language := .Languages}}<span data-lang-content="{{$language}}"{{if $index}} hidden{{end}}>{{formatPrice $view.Price $language $view.Currency}}</span>{{end}}</span>{{end}}{{end}}
 
-{{define "prices"}}{{if or .Item.PriceNormal .Item.PriceLarge}}<span class="size-prices">{{if .Item.PriceNormal}}<span class="size-price">{{template "localized" (ui "regular" .Conference)}}{{template "price" (priceView .Item.PriceNormal .Conference)}}</span>{{end}}{{if .Item.PriceLarge}}<span class="size-price">{{template "localized" (ui "large" .Conference)}}{{template "price" (priceView .Item.PriceLarge .Conference)}}</span>{{end}}</span>{{else}}{{template "price" (priceView .Item.Price .Conference)}}{{end}}{{end}}
+{{define "prices"}}{{if not .Conference.HidePrices}}{{if or .Item.PriceNormal .Item.PriceLarge}}<span class="size-prices">{{if .Item.PriceNormal}}<span class="size-price">{{template "localized" (ui "regular" .Conference)}}{{template "price" (priceView .Item.PriceNormal .Conference)}}</span>{{end}}{{if .Item.PriceLarge}}<span class="size-price">{{template "localized" (ui "large" .Conference)}}{{template "price" (priceView .Item.PriceLarge .Conference)}}</span>{{end}}</span>{{else}}{{template "price" (priceView .Item.Price .Conference)}}{{end}}{{end}}{{end}}
 
 {{define "sold-out"}}{{if .SoldOut}}<span class="sold-out">{{template "localized" (ui "sold_out" .Conference)}}</span>{{end}}{{end}}
 
