@@ -38,6 +38,15 @@ tags:
     en: Kosher
     ru: Кошерное
 
+# Example declarations only: verify every ingredient with the actual recipe/supplier.
+regulatory:
+  cake:
+    allergens:
+      - {de: Weizen (Gluten), en: Wheat (gluten), ru: Пшеница (глютен)}
+      - {de: Walnüsse, en: Walnuts, ru: Грецкие орехи}
+      - {de: Milch, en: Milk, ru: Молоко}
+      - {de: Eier, en: Eggs, ru: Яйца}
+
 permanent:
   coffee:
     - id: filter_coffee

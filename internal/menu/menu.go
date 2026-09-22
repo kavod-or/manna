@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -20,10 +21,11 @@ type Localized struct {
 }
 
 type Config struct {
-	Conference Conference           `yaml:"conference"`
-	Tags       map[string]Localized `yaml:"tags"`
-	Permanent  Permanent            `yaml:"permanent"`
-	Days       []Day                `yaml:"days"`
+	Conference Conference            `yaml:"conference"`
+	Tags       map[string]Localized  `yaml:"tags"`
+	Regulatory map[string]Regulatory `yaml:"regulatory"`
+	Permanent  Permanent             `yaml:"permanent"`
+	Days       []Day                 `yaml:"days"`
 }
 
 type Conference struct {
@@ -100,6 +102,61 @@ type Item struct {
 	Tags        []string    `yaml:"tags"`
 }
 
+// Regulatory holds item-specific declarations shown before a guest orders.
+type Regulatory struct {
+	Allergens []Localized `yaml:"allergens"`
+	Additives []Localized `yaml:"additives"`
+	Notices   []Localized `yaml:"notices"`
+}
+
+func (regulatory Regulatory) Present() bool {
+	return len(regulatory.Allergens)+len(regulatory.Additives)+len(regulatory.Notices) > 0
+}
+
+type RegulatoryItem struct {
+	Name       Localized
+	Regulatory Regulatory
+}
+
+func (config Config) HasRegulatory() bool {
+	return len(config.RegulatoryItems()) > 0
+}
+
+// RegulatoryItems returns each distinct name and declaration once for the footer.
+func (config Config) RegulatoryItems() []RegulatoryItem {
+	var items []RegulatoryItem
+	add := func(item Item) {
+		regulatory, ok := config.Regulatory[item.ID]
+		if !ok || !regulatory.Present() {
+			return
+		}
+		for _, existing := range items {
+			if reflect.DeepEqual(existing.Name, item.Name) && reflect.DeepEqual(existing.Regulatory, regulatory) {
+				return
+			}
+		}
+		items = append(items, RegulatoryItem{Name: item.Name, Regulatory: regulatory})
+	}
+	for _, day := range config.Days {
+		for _, truck := range day.FoodTrucks {
+			for _, item := range truck.Items {
+				add(item)
+			}
+		}
+		for _, service := range day.Services {
+			for _, item := range service.Items {
+				add(item)
+			}
+		}
+	}
+	for _, group := range [][]Item{config.Permanent.Coffee, config.Permanent.Drinks, config.Permanent.Snacks} {
+		for _, item := range group {
+			add(item)
+		}
+	}
+	return items
+}
+
 func Decode(reader io.Reader) (Config, error) {
 	decoder := yaml.NewDecoder(reader)
 	decoder.KnownFields(true)
@@ -133,6 +190,7 @@ func (config Config) Validate() error {
 	if err != nil {
 		return err
 	}
+	itemIDs := make(map[string]bool)
 
 	if err := validateLocalized("conference.name", config.Conference.Name, languages); err != nil {
 		return err
@@ -158,16 +216,19 @@ func (config Config) Validate() error {
 		}
 	}
 	for index, item := range config.Permanent.Coffee {
+		itemIDs[item.ID] = true
 		if err := config.validateItem(fmt.Sprintf("permanent.coffee[%d]", index), item); err != nil {
 			return err
 		}
 	}
 	for index, item := range config.Permanent.Drinks {
+		itemIDs[item.ID] = true
 		if err := config.validateItem(fmt.Sprintf("permanent.drinks[%d]", index), item); err != nil {
 			return err
 		}
 	}
 	for index, item := range config.Permanent.Snacks {
+		itemIDs[item.ID] = true
 		if err := config.validateItem(fmt.Sprintf("permanent.snacks[%d]", index), item); err != nil {
 			return err
 		}
@@ -197,6 +258,7 @@ func (config Config) Validate() error {
 			}
 			seenTrucks[truck.ID] = true
 			for itemIndex, item := range truck.Items {
+				itemIDs[item.ID] = true
 				if err := config.validateItem(fmt.Sprintf("%s.items[%d]", path, itemIndex), item); err != nil {
 					return err
 				}
@@ -249,7 +311,27 @@ func (config Config) Validate() error {
 				return fmt.Errorf("%s.until must be after from on the same day", path)
 			}
 			for itemIndex, item := range service.Items {
+				itemIDs[item.ID] = true
 				if err := config.validateItem(fmt.Sprintf("%s.items[%d]", path, itemIndex), item); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	for id, regulatory := range config.Regulatory {
+		regulatoryPath := fmt.Sprintf("regulatory.%s", id)
+		if id == "" || !itemIDs[id] {
+			return fmt.Errorf("%s must refer to an existing item ID", regulatoryPath)
+		}
+		if !regulatory.Present() {
+			return fmt.Errorf("%s must contain allergens, additives, or notices", regulatoryPath)
+		}
+		for _, group := range []struct {
+			name   string
+			values []Localized
+		}{{"allergens", regulatory.Allergens}, {"additives", regulatory.Additives}, {"notices", regulatory.Notices}} {
+			for index, value := range group.values {
+				if err := validateLocalized(fmt.Sprintf("%s.%s[%d]", regulatoryPath, group.name, index), value, languages); err != nil {
 					return err
 				}
 			}

@@ -52,7 +52,7 @@ test('mazel tov uses the same three-second logo hold and toggles off', async () 
   const handlers = {};
   let hold, delay, link, complete, loads = 0, starts = 0, stops = 0;
   const source = fs.readFileSync('web/static/app.js', 'utf8').split('// A deliberate logo hold')[1]
-    .replace("import('/static/mazel-tov.js?v=3')", 'loadMazelTov()');
+    .replace(/import\('\/static\/mazel-tov\.js(?:\?v=[^']+)?'\)/, 'loadMazelTov()');
   vm.runInNewContext('// A deliberate logo hold'+source, {
     loadMazelTov: async () => ({startMazelTov: (onStop) => {starts++; complete = onStop; return () => {stops++; onStop();};}}),
     document: {

@@ -54,6 +54,12 @@ type availabilityView struct {
 	Languages  []string
 }
 
+type regulatoryView struct {
+	Name       menu.Localized
+	Regulatory menu.Regulatory
+	Conference menu.Conference
+}
+
 type variantsView struct {
 	Variants   []menu.Localized
 	Conference menu.Conference
@@ -87,6 +93,10 @@ var interfaceText = map[string]menu.Localized{
 	"sold_out":     interfaceTranslation("Ausverkauft", "Sold out", "Распродано"),
 	"regular":      interfaceTranslation("Normal", "Regular", "Обычный"),
 	"large":        interfaceTranslation("Groß", "Large", "Большой"),
+	"food_info":    interfaceTranslation("Allergene & Lebensmittelinfos", "Allergens & food information", "Аллергены и информация о продукте"),
+	"allergens":    interfaceTranslation("Allergene", "Allergens", "Аллергены"),
+	"additives":    interfaceTranslation("Zusatzstoffe", "Additives", "Пищевые добавки"),
+	"notices":      interfaceTranslation("Weitere Hinweise", "Other notices", "Другие сведения"),
 }
 
 var publicStaticAssets = map[string]struct{}{
@@ -142,6 +152,9 @@ func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, con
 		},
 		"availability": func(item menu.Item, conference menu.Conference) availabilityView {
 			return availabilityView{Item: item, Conference: conference, Languages: conference.LanguageCodes()}
+		},
+		"regulatoryView": func(item menu.RegulatoryItem, conference menu.Conference) regulatoryView {
+			return regulatoryView{Name: item.Name, Regulatory: item.Regulatory, Conference: conference}
 		},
 		"variants": func(item menu.Item, conference menu.Conference) variantsView {
 			return variantsView{Variants: item.Variants, Conference: conference}

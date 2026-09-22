@@ -82,6 +82,26 @@ func TestMenuContentCannotInjectHTMLOrScript(t *testing.T) {
 	}
 }
 
+func TestFoodInformationAppearsOnceInFooter(t *testing.T) {
+	item := menu.Item{ID: "cake", Name: menu.Localized{DE: "Kuchen", EN: "Cake"}}
+	config := menu.Config{
+		Conference: menu.Conference{Name: menu.Localized{DE: "Konferenz", EN: "Conference"}, Location: menu.Localized{DE: "Foyer", EN: "Foyer"}},
+		Regulatory: map[string]menu.Regulatory{"cake": {Allergens: []menu.Localized{{DE: "Weizen", EN: "Wheat"}}}},
+		Days:       []menu.Day{{Date: "2026-10-12", Services: []menu.Service{{ID: "lunch", Title: menu.Localized{DE: "Mittag", EN: "Lunch"}, Subtitle: menu.Localized{DE: "Frisch", EN: "Fresh"}, From: "12:00", Until: "13:00", Items: []menu.Item{item}}}}},
+	}
+	config.Days = append(config.Days, menu.Day{Date: "2026-10-13", Services: config.Days[0].Services})
+	handler, err := New(map[string]menu.Loader{"/event": func() (menu.Config, error) { return config, nil }}, os.DirFS("../.."), os.DirFS("../../web/static"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/event", nil))
+	body := response.Body.String()
+	if response.Code != http.StatusOK || strings.Count(body, `class="regulatory-trigger"`) != 1 || strings.Count(body, `class="regulatory-item"`) != 1 || !strings.Contains(body, "Weizen") {
+		t.Fatalf("food information footer was not rendered as expected: status=%d body=%s", response.Code, body)
+	}
+}
+
 func TestAccessLogIncludesAdminEndpointWithoutCredentialsOrQuery(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))

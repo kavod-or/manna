@@ -37,6 +37,50 @@ func TestDecodeValidMenu(t *testing.T) {
 	}
 }
 
+func TestRegulatoryDeclarations(t *testing.T) {
+	source := strings.Replace(validMenu, "permanent:", "regulatory:\n  water:\n    allergens:\n      - {de: Milch, en: Milk}\n    additives:\n      - {de: mit Farbstoff, en: contains colouring}\npermanent:", 1)
+	config, err := Decode(strings.NewReader(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.HasRegulatory() || len(config.Regulatory["water"].Allergens) != 1 {
+		t.Fatal("shared declarations were not decoded")
+	}
+	if config, err := Decode(strings.NewReader(validMenu)); err != nil || config.HasRegulatory() {
+		t.Fatalf("menu without declarations unexpectedly has them: %v", err)
+	}
+	invalid := strings.Replace(source, "en: Milk", "en: \"\"", 1)
+	if _, err := Decode(strings.NewReader(invalid)); err == nil || !strings.Contains(err.Error(), "regulatory.water.allergens[0]") {
+		t.Fatalf("missing translation error = %v", err)
+	}
+	unknown := strings.Replace(source, "  water:\n    allergens:", "  missing:\n    allergens:", 1)
+	if _, err := Decode(strings.NewReader(unknown)); err == nil || !strings.Contains(err.Error(), "existing item ID") {
+		t.Fatalf("unknown item ID error = %v", err)
+	}
+	perItem := strings.Replace(validMenu, "- id: water", "- id: water\n      regulatory: {allergens: []}", 1)
+	if _, err := Decode(strings.NewReader(perItem)); err == nil {
+		t.Fatal("per-item regulatory declaration was accepted")
+	}
+}
+
+func TestRegulatoryItemsDeduplicatesAcrossDays(t *testing.T) {
+	name := Localized{DE: "Brezel", EN: "Pretzel"}
+	milk := Regulatory{Allergens: []Localized{{DE: "Milch", EN: "Milk"}}}
+	wheat := Regulatory{Allergens: []Localized{{DE: "Weizen", EN: "Wheat"}}}
+	config := Config{
+		Regulatory: map[string]Regulatory{"snack": milk, "breakfast": milk, "different": wheat},
+		Permanent:  Permanent{Snacks: []Item{{ID: "snack", Name: name}}},
+		Days: []Day{
+			{Services: []Service{{Items: []Item{{ID: "breakfast", Name: name}}}}},
+			{Services: []Service{{Items: []Item{{ID: "breakfast", Name: name}, {ID: "different", Name: name}}}}},
+		},
+	}
+	items := config.RegulatoryItems()
+	if len(items) != 2 || items[0].Regulatory.Allergens[0].DE != "Milch" || items[1].Regulatory.Allergens[0].DE != "Weizen" {
+		t.Fatalf("unexpected deduplicated declarations: %#v", items)
+	}
+}
+
 func TestDecodeRejectsUnknownFields(t *testing.T) {
 	_, err := Decode(strings.NewReader(validMenu + "unexpected: true\n"))
 	if err == nil {

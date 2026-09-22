@@ -499,6 +499,26 @@ food_trucks:
 
 Truck notices are independent of the conference notice; no payment method is inferred or inherited. Both example menus demonstrate cash-only, card payment, and cash-and-card trucks.
 
+## Food information for menu items
+
+Add one top-level `regulatory` section to the menu file. Each key is an item ID from a meal, food truck, coffee, drink, or snack. Repeated occurrences of that ID use the same declarations automatically. The footer shows one **Allergens & food information** button whenever at least one listed item has declarations. Its popup lists each distinct item and its details once, even when the item appears on multiple days. The popup closes when guests click elsewhere or press Escape.
+
+```yaml
+regulatory:
+  waffle:
+    allergens:
+      - {de: Weizen (Gluten), en: Wheat (gluten)}
+      - {de: Milch, en: Milk}
+    additives:
+      - {de: mit Farbstoff, en: contains colouring}
+    notices:
+      - {de: enthält eine Phenylalaninquelle, en: contains a source of phenylalanine}
+```
+
+Each entry needs a nonblank translation for every language configured under `conference.languages`. Omit empty sections. Every `regulatory` key must match at least one item ID in the same menu file; unused definitions are rejected. Only add declarations that apply to the **actual item**; update them when its recipe, supplier, or ingredients change. If different products are combined into one menu item, identify the affected variant in its declaration or split the products so guests can tell which declaration applies. The footer is hidden when no item has declarations.
+
+For unpackaged food in Germany, the allergens to check against EU Regulation 1169/2011 Annex II are: cereals containing gluten (name the cereal), crustaceans, eggs, fish, peanuts, soybeans, milk, nuts (name the nut), celery, mustard, sesame, sulphur dioxide/sulphites above the stated threshold, lupin, and molluscs. Ingredients and processing aids derived from these also count, subject to the regulation's exemptions. German [LMIDV § 4](https://www.gesetze-im-internet.de/lmidv/__4.html) requires the applicable allergen information to be visible, legible, associated with the food, and available before purchase or handover; it permits an immediately accessible electronic presentation. [LMZDV § 5](https://www.gesetze-im-internet.de/lmzdv/__5.html) specifies declarations for applicable additives and warnings, including colouring, preservatives, antioxidants, flavour enhancers, phosphates, sweeteners, phenylalanine and excess polyols. Use its prescribed German wording where applicable. Other product-specific required statements can go in `notices`. This YAML schema provides a place to publish the information but cannot determine which declarations a recipe legally requires. Check the actual formulation and the rules applicable to each product, especially prepacked self-service items, which have additional labelling requirements.
+
 ## Food truck menu items
 
 Add optional `items` to a food truck to list dishes and prices inside its card:

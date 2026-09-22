@@ -10,6 +10,40 @@
   const dayPanels = [...document.querySelectorAll("[data-day-panel]")];
   const supportedLanguages = languageButtons.map((button) => button.dataset.language);
 
+  const infoControls = [...document.querySelectorAll('.regulatory-control')];
+  function closeFoodInfo() {
+    infoControls.forEach((control) => {
+      const popover = control.querySelector('.regulatory-popover');
+      if (popover.matches(':popover-open')) popover.hidePopover();
+    });
+  }
+  infoControls.forEach((control) => {
+    const trigger = control.querySelector('.regulatory-trigger');
+    const popover = control.querySelector('.regulatory-popover');
+    trigger.addEventListener('click', () => {
+      if (popover.matches(':popover-open')) {
+        popover.hidePopover();
+        return;
+      }
+      const label = popover.querySelector('.regulatory-title [data-lang-content]:not([hidden])')?.textContent;
+      if (label) {
+        trigger.setAttribute('aria-label', label);
+        popover.setAttribute('aria-label', label);
+      }
+      const rect = trigger.getBoundingClientRect();
+      const width = Math.min(320, window.innerWidth - 24);
+      popover.style.width = `${width}px`;
+      popover.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
+      popover.showPopover();
+      const height = popover.getBoundingClientRect().height;
+      const below = rect.bottom + 8;
+      const above = rect.top - height - 8;
+      popover.style.top = `${Math.max(12, Math.min(below + height <= window.innerHeight - 12 ? below : above, window.innerHeight - height - 12))}px`;
+    });
+    popover.addEventListener('toggle', () => trigger.setAttribute('aria-expanded', String(popover.matches(':popover-open'))));
+  });
+  window.addEventListener('scroll', closeFoodInfo, {passive: true});
+
   let manualDay = false;
   const clock = new Intl.DateTimeFormat("en-GB", {
     timeZone: document.body.dataset.timezone,
@@ -74,6 +108,7 @@
   }
 
   function setLanguage(language) {
+    closeFoodInfo();
     const copy = translations[language.split("-")[0]] || translations.en;
     root.lang = language;
     root.dir = ["ar", "fa", "he", "ur"].includes(language.split("-")[0]) ? "rtl" : "ltr";
@@ -90,6 +125,7 @@
   }
 
   function selectDay(index) {
+    closeFoodInfo();
     dayButtons.forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.dayButton === index));
     });

@@ -468,6 +468,50 @@ footer {
   text-align: center;
 }
 
+.regulatory-trigger {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--paper);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.regulatory-trigger:hover { background: var(--green-soft); }
+
+.regulatory-popover {
+  position: fixed;
+  inset: auto;
+  max-height: min(70vh, 30rem);
+  margin: 0;
+  padding: 1.25rem;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  background: var(--paper);
+  text-align: start;
+  font-size: 0.82rem;
+}
+
+.regulatory-popover h2 {
+  margin: 0 0 0.75rem;
+  color: var(--green);
+  font-size: 1rem;
+}
+
+.regulatory-item {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.regulatory-item > strong { color: var(--green); }
+
+.regulatory-section { margin-top: 0.35rem; }
+.regulatory-section b { display: block; font-weight: 600; }
+
 @media (max-width: 52rem) {
   .overview-grid,
   .schedule {
@@ -860,4 +904,58 @@ footer .github-link {
 .github-link:hover {
   color: var(--green);
   background: var(--green-soft);
+}
+
+@media (min-width: 80rem) {
+  html {
+    font-size: 106.25%;
+  }
+
+  .site-shell {
+    width: min(100% - 2rem, 80rem);
+  }
+}
+
+@media (min-width: 100rem) {
+  html {
+    font-size: 112.5%;
+  }
+}
+
+@media (max-width: 90rem) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 90rem) {
+  .overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 48.75rem) {
+  .focus-dishes:has(> .focus-dish:nth-child(2)),
+  .food-truck-grid:has(> .food-truck-card:nth-child(2)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .focus-dishes:has(> .focus-dish:nth-child(2)) .focus-dish {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .focus-dishes:has(> .focus-dish:nth-child(2)) .tags {
+    justify-content: flex-start;
+  }
+
+  .always-group ul:has(> li:nth-child(3)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1.5rem;
+  }
+
+  .always-group li {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
