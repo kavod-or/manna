@@ -19,7 +19,10 @@
 }
 
 html {
+  --base-font-size: 100%;
+  --font-size-adjustment: 0%;
   background: var(--cream);
+  font-size: calc(var(--base-font-size) + var(--font-size-adjustment));
   scroll-behavior: smooth;
 }
 
@@ -468,6 +471,88 @@ footer {
   text-align: center;
 }
 
+.font-size-settings {
+  position: relative;
+  margin-top: 0.5rem;
+}
+
+.font-size-trigger {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--paper);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.font-size-trigger::-webkit-details-marker { display: none; }
+
+.font-size-trigger:hover,
+.font-size-settings[open] .font-size-trigger {
+  background: var(--green-soft);
+}
+
+.font-size-trigger svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: currentcolor;
+}
+
+.font-size-menu {
+  width: min(20rem, calc(100vw - 2rem));
+  margin: 0.6rem auto 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  text-align: start;
+}
+
+.font-size-title {
+  display: block;
+  margin-bottom: 0.55rem;
+  color: var(--green);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.font-size-slider-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--green);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.font-size-large-a {
+  font-size: 1.25rem;
+}
+
+.font-size-slider-row input {
+  width: 100%;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+
+.font-size-value {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
 .regulatory-trigger {
   padding: 0.4rem 0.75rem;
   border: 1px solid var(--green);
@@ -908,7 +993,7 @@ footer .github-link {
 
 @media (min-width: 80rem) {
   html {
-    font-size: 106.25%;
+    --base-font-size: 106.25%;
   }
 
   .site-shell {
@@ -918,7 +1003,7 @@ footer .github-link {
 
 @media (min-width: 100rem) {
   html {
-    font-size: 112.5%;
+    --base-font-size: 112.5%;
   }
 }
 

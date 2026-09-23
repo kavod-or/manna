@@ -34,3 +34,33 @@ test('animation loads only on fifth click and failed downloads can retry', async
   assert.equal(loads, 2); assert.equal(starts, 1);
   assert.ok(!fs.readFileSync('web/templates/index.html', 'utf8').includes('/static/manna.js'));
 });
+
+test('font size setting is restored, changed, and stored on the device', () => {
+  const listeners = {};
+  const properties = {};
+  const root = {style: {setProperty(name, value) { properties[name] = value; }}};
+  const slider = {min: '100', max: '150', value: '100', addEventListener(type, callback) { listeners[`slider:${type}`] = callback; }};
+  const value = {textContent: ''};
+  const stored = {'manna-font-size': '125'};
+  const document = {
+    documentElement: root,
+    querySelector: (selector) => ({
+      '[data-font-size-value]': value,
+    }[selector]),
+    querySelectorAll: (selector) => selector === '[data-font-size-slider]' ? [slider] : [],
+  };
+  const source = fs.readFileSync('web/static/app.js', 'utf8').split('// Keep the visitor\'s readability preference')[1].split('// Keep only the trigger here;')[0];
+  vm.runInNewContext('// Keep the visitor\'s readability preference' + source, {
+    document,
+    window: {localStorage: {getItem: (key) => stored[key], setItem: (key, value) => {stored[key] = value;}}},
+  });
+
+  assert.equal(slider.value, '125');
+  assert.equal(value.textContent, '125%');
+  assert.equal(properties['--font-size-adjustment'], '25%');
+  slider.value = '145';
+  listeners['slider:input']();
+  assert.equal(value.textContent, '145%');
+  assert.equal(properties['--font-size-adjustment'], '45%');
+  assert.equal(stored['manna-font-size'], 145);
+});

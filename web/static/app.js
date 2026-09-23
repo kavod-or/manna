@@ -62,18 +62,24 @@
       dayLabel: "Konferenztage",
       topicLabel: "Direkt zu",
       today: "Heute",
+      fontSettings: "Schrifteinstellungen",
+      fontSize: "Schriftgröße",
     },
     en: {
       languageLabel: "Choose language",
       dayLabel: "Conference days",
       topicLabel: "Jump to",
       today: "Today",
+      fontSettings: "Font settings",
+      fontSize: "Font size",
     },
     ru: {
       languageLabel: "Выбрать язык",
       dayLabel: "Дни конференции",
       topicLabel: "Перейти к разделу",
       today: "Сегодня",
+      fontSettings: "Настройки шрифта",
+      fontSize: "Размер шрифта",
     },
   };
 
@@ -121,6 +127,13 @@
     document.querySelector(".language-switch").setAttribute("aria-label", copy.languageLabel);
     document.querySelector(".day-switcher").setAttribute("aria-label", copy.dayLabel);
     document.querySelectorAll(".topic-nav").forEach((nav) => nav.setAttribute("aria-label", copy.topicLabel));
+    const fontCopy = {
+      settings: copy.fontSettings,
+      title: copy.fontSize,
+    };
+    document.querySelectorAll("[data-font-copy]").forEach((element) => {
+      element.textContent = fontCopy[element.dataset.fontCopy];
+    });
     formatDates(language);
   }
 
@@ -170,6 +183,39 @@
   restoreTopic();
   setInterval(updateSchedule, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) updateSchedule(); });
+})();
+
+// Keep the visitor's readability preference on this device.
+(() => {
+  const root = document.documentElement;
+  const [slider] = document.querySelectorAll("[data-font-size-slider]");
+  if (!slider) return;
+  const value = document.querySelector("[data-font-size-value]");
+  if (!value) return;
+
+  const storageKey = "manna-font-size";
+  const minimum = Number(slider.min);
+  const maximum = Number(slider.max);
+  let selected = minimum;
+  try {
+    const stored = Number(window.localStorage?.getItem(storageKey));
+    if (Number.isFinite(stored)) selected = Math.min(maximum, Math.max(minimum, stored));
+  } catch {
+    // Storage can be unavailable in privacy modes; the setting still works for this visit.
+  }
+
+  function setSize(size, persist = true) {
+    selected = Math.min(maximum, Math.max(minimum, Number(size) || minimum));
+    slider.value = String(selected);
+    value.textContent = `${selected}%`;
+    root.style.setProperty("--font-size-adjustment", `${selected - minimum}%`);
+    if (persist) {
+      try { window.localStorage?.setItem(storageKey, selected); } catch {}
+    }
+  }
+
+  setSize(selected, false);
+  slider.addEventListener("input", () => setSize(slider.value));
 })();
 
 // Keep only the trigger here; download the animation after the fifth click.
