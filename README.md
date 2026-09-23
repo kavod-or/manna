@@ -114,7 +114,7 @@ permanent:
   drinks:
     - id: water
       name: {de: Wasser, en: Water}
-      price: 2.50
+      price_normal: 2.50
   snacks: []
 
 days:
@@ -377,7 +377,7 @@ Do not use a broad network such as `0.0.0.0/0`. Only a proxy that overwrites the
 
 ## Optional prices
 
-Set `conference.hide_prices: true` in an event's menu YAML to hide every price, including normal and large size labels, while leaving all menu items visible. Prices remain in the file so you can edit them. Set the flag to `false` or remove it when they are ready; prices are shown by default. With `CONTENT_DIR`, the change reloads with the menu.
+Set `conference.hide_prices: true` in an event's menu YAML to hide every price, including small, normal, and large size labels, while leaving all menu items visible. Prices remain in the file so you can edit them. Set the flag to `false` or remove it when they are ready; prices are shown by default. With `CONTENT_DIR`, the change reloads with the menu.
 
 Add `price` to an individual meal item or a permanent coffee/drink/snack in the event's menu file. Services such as breakfast, lunch, and dinner provide the title and short description; their items carry the prices:
 
@@ -396,13 +396,14 @@ Prices are amounts in the event currency, with a decimal point and at most two d
 
 The language switch localizes prices in the featured meal, full schedule, drinks, and snacks. External menu prices reload just like other menu content.
 
-Coffee is configured separately under `permanent.coffee`, other drinks under `permanent.drinks`, and snacks under `permanent.snacks`. Coffee items support the same optional prices and translations. The Coffee section is hidden when its list is empty.
+Coffee is configured separately under `permanent.coffee`, other drinks under `permanent.drinks`, and snacks under `permanent.snacks`. All three groups support the same optional prices and translations and share the same responsive table layout. A section is hidden when its corresponding list is empty.
 
-For optional size prices, replace an item's `price` with either or both size fields:
+For optional size prices, replace an item's `price` with one or more size fields:
 
 ```yaml
 - id: cappuccino
   name: {de: Cappuccino, en: Cappuccino}
+  price_small: 2.80
   price_normal: 3.20
   price_large: 4.20
 ```
@@ -534,7 +535,7 @@ food_trucks:
         description: {de: Mit Hummus und Salat, en: With hummus and salad}
 ```
 
-Each item requires an ID and a name in every configured language. Prices use the event's configured currency and the same localized formatting as other menu items: omit `price` to hide it, use `0` for free items, or use `price_normal` and `price_large` for sizes. `sold_out: true` shows the sold-out badge instead of prices. Descriptions are optional and require every configured translation when present. Omit `items` or use `items: []` to hide the list. Both example menus include priced food truck dishes.
+Each item requires an ID and a name in every configured language. Prices use the event's configured currency and the same localized formatting as other menu items: omit `price` to hide it, use `0` for free items, or use `price_small`, `price_normal`, and `price_large` for sizes. `sold_out: true` shows the sold-out badge instead of prices. Descriptions are optional and require every configured translation when present. Omit `items` or use `items: []` to hide the list. Both example menus include priced food truck dishes.
 
 ## License
 

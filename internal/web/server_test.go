@@ -321,7 +321,7 @@ func TestPricesInRealTemplate(t *testing.T) {
 			}
 			continue
 		}
-		for text, count := range map[string]int{"4,50\u00a0€": 3, "€4.50": 3, "0,00\u00a0€": 1, "€0.00": 1} {
+		for text, count := range map[string]int{"4,50\u00a0€": 4, "€4.50": 4, "0,00\u00a0€": 2, "€0.00": 2} {
 			if got := strings.Count(body, text); got != count {
 				t.Errorf("%q appeared %d times, want %d", text, got, count)
 			}
@@ -406,16 +406,16 @@ func TestItemVariantsRenderEverywhere(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status %d", response.Code)
 	}
-	if got := strings.Count(body, `class="item-variants"`); got != 6 {
-		t.Fatalf("variant lists = %d, want 6", got)
+	if got := strings.Count(body, `class="item-variants"`); got != 9 {
+		t.Fatalf("variant lists = %d, want 9", got)
 	}
 	for _, text := range []string{"Kirsche", "Cherry", "Вишня", "Манго"} {
-		if got := strings.Count(body, text); got != 6 {
-			t.Errorf("%q count = %d, want 6", text, got)
+		if got := strings.Count(body, text); got != 9 {
+			t.Errorf("%q count = %d, want 9", text, got)
 		}
 	}
-	if got := strings.Count(body, " · "); got < 6 {
-		t.Errorf("variant separators = %d, want at least 6", got)
+	if got := strings.Count(body, " · "); got < 9 {
+		t.Errorf("variant separators = %d, want at least 9", got)
 	}
 }
 
@@ -492,8 +492,8 @@ func TestRussianInterfaceTextIsComplete(t *testing.T) {
 }
 
 func TestSizePricesRender(t *testing.T) {
-	normal, large := menu.Price(0), menu.Price(420)
-	config := menu.Config{Days: []menu.Day{{Services: []menu.Service{{Items: []menu.Item{{PriceNormal: &normal, PriceLarge: &large}}}}}}, Permanent: menu.Permanent{Coffee: []menu.Item{{PriceNormal: &normal}, {PriceLarge: &large}}}}
+	small, normal, large := menu.Price(150), menu.Price(0), menu.Price(420)
+	config := menu.Config{Days: []menu.Day{{Services: []menu.Service{{Items: []menu.Item{{PriceSmall: &small, PriceNormal: &normal, PriceLarge: &large}}}}}}, Permanent: menu.Permanent{Coffee: []menu.Item{{PriceSmall: &small}, {PriceNormal: &normal}, {PriceLarge: &large}}}}
 	handler, err := newTestServer(func() (menu.Config, error) { return config, nil }, os.DirFS("../.."), fstest.MapFS{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -501,9 +501,45 @@ func TestSizePricesRender(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
 	body := response.Body.String()
-	for _, value := range []string{">Normal<", ">Regular<", ">Groß<", ">Large<", "0,00\u00a0€", "€0.00", "4,20\u00a0€", "€4.20"} {
-		if count := strings.Count(body, value); count != 3 {
-			t.Errorf("%q count = %d, want 3", value, count)
+	for _, value := range []string{">Klein<", ">Small<", ">Normal<", ">Regular<", ">Groß<", ">Large<", "1,50\u00a0€", "€1.50", "0,00\u00a0€", "€0.00", "4,20\u00a0€", "€4.20"} {
+		if count := strings.Count(body, value); count != 4 {
+			t.Errorf("%q count = %d, want 4", value, count)
+		}
+	}
+	if count := strings.Count(body, `class="price-table"`); count != 3 {
+		t.Errorf("price table count = %d, want one compact and two wide tables", count)
+	}
+	if count := strings.Count(body, `class="price-size-heading"`); count != 6 {
+		t.Errorf("price size heading count = %d, want only populated size columns", count)
+	}
+}
+
+func TestDrinksUseCoffeeTableLayout(t *testing.T) {
+	price := menu.Price(200)
+	config := menu.Config{
+		Permanent: menu.Permanent{
+			Drinks: []menu.Item{
+				{ID: "water", PriceNormal: &price, Name: menu.Localized{DE: "Wasser", EN: "Water"}},
+				{ID: "juice", PriceNormal: &price, Name: menu.Localized{DE: "Saft", EN: "Juice"}},
+			},
+		},
+		Days: []menu.Day{{Services: []menu.Service{{}}}},
+	}
+	handler, err := newTestServer(func() (menu.Config, error) { return config, nil }, os.DirFS("../.."), fstest.MapFS{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
+	body := response.Body.String()
+	for _, marker := range []string{`class="menu-table-compact"`, `class="menu-tables-wide"`, `class="price-table"`, ">Wasser<", ">Water<", ">Saft<", ">Juice<", ">Normal<", ">Regular<"} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("missing %q", marker)
+		}
+	}
+	for text, want := range map[string]int{"2,00\u00a0€": 4, "€2.00": 4} {
+		if got := strings.Count(body, text); got != want {
+			t.Errorf("%q count = %d, want %d", text, got, want)
 		}
 	}
 }
@@ -580,8 +616,8 @@ func TestSoldOutRendering(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/test", nil))
 	body := response.Body.String()
 	for _, label := range []string{"Ausverkauft", "Sold out"} {
-		if count := strings.Count(body, label); count != 7 {
-			t.Errorf("%s count = %d, want 7", label, count)
+		if count := strings.Count(body, label); count != 10 {
+			t.Errorf("%s count = %d, want 10", label, count)
 		}
 	}
 	if strings.Contains(body, "€2.50") {

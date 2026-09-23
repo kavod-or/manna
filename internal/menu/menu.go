@@ -79,6 +79,7 @@ type TimeWindow struct {
 
 type Service struct {
 	SoldOut     bool      `yaml:"sold_out"`
+	PriceSmall  *Price    `yaml:"price_small"`  // Accepted for compatibility; service prices are not displayed.
 	PriceNormal *Price    `yaml:"price_normal"` // Accepted for compatibility; service prices are not displayed.
 	PriceLarge  *Price    `yaml:"price_large"`  // Accepted for compatibility; service prices are not displayed.
 	Price       *Price    `yaml:"price"`        // Accepted for compatibility; service prices are not displayed.
@@ -92,6 +93,7 @@ type Service struct {
 
 type Item struct {
 	SoldOut     bool        `yaml:"sold_out"`
+	PriceSmall  *Price      `yaml:"price_small"`
 	PriceNormal *Price      `yaml:"price_normal"`
 	PriceLarge  *Price      `yaml:"price_large"`
 	Price       *Price      `yaml:"price"`
@@ -289,7 +291,7 @@ func (config Config) Validate() error {
 		}
 		for serviceIndex, service := range day.Services {
 			path := fmt.Sprintf("days[%d].services[%d]", dayIndex, serviceIndex)
-			if err := validatePrices(path, service.Price, service.PriceNormal, service.PriceLarge); err != nil {
+			if err := validatePrices(path, service.Price, service.PriceSmall, service.PriceNormal, service.PriceLarge); err != nil {
 				return err
 			}
 			if service.ID == "" {
@@ -365,7 +367,7 @@ func validateLogo(filename string) error {
 }
 
 func (config Config) validateItem(path string, item Item) error {
-	if err := validatePrices(path, item.Price, item.PriceNormal, item.PriceLarge); err != nil {
+	if err := validatePrices(path, item.Price, item.PriceSmall, item.PriceNormal, item.PriceLarge); err != nil {
 		return err
 	}
 	if item.ID == "" {
@@ -434,9 +436,9 @@ func validateTimeWindow(path, from, until string) error {
 	return nil
 }
 
-func validatePrices(path string, single, normal, large *Price) error {
-	if single != nil && (normal != nil || large != nil) {
-		return fmt.Errorf("%s: use either price or price_normal/price_large", path)
+func validatePrices(path string, single, small, normal, large *Price) error {
+	if single != nil && (small != nil || normal != nil || large != nil) {
+		return fmt.Errorf("%s: use either price or price_small/price_normal/price_large", path)
 	}
 	return nil
 }

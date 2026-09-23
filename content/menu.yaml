@@ -97,7 +97,7 @@ permanent:
         ru: Капучино
   drinks:
     - id: softdrinks
-      price: 2.00
+      price_normal: 2.00
       name:
         de: Wasser (still, medium, classic), Coca Cola, Fanta, Cola Mix, Apfelschorle, Rote-Früchte Schorle, Iso Sport
         en: Water (still, medium-carbonated, sparkling), Coca-Cola, Fanta, cola mix, apple spritzer, red berry spritzer, isotonic sports drink

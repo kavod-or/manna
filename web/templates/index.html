@@ -152,11 +152,7 @@
             <h3>
               {{template "localized" (ui "coffee" $.Conference)}}
             </h3>
-            <ul>
-              {{range $.Permanent.Coffee}}
-              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}{{template "variants" (variants . $.Conference)}}</li>
-              {{end}}
-            </ul>
+            {{template "responsive-price-tables" (priceTables $.Permanent.Coffee $.Conference "coffee")}}
           </div>
           {{end}}
 
@@ -165,11 +161,7 @@
             <h3>
               {{template "localized" (ui "drinks" $.Conference)}}
             </h3>
-            <ul>
-              {{range $.Permanent.Drinks}}
-              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}{{template "variants" (variants . $.Conference)}}</li>
-              {{end}}
-            </ul>
+            {{template "responsive-price-tables" (priceTables $.Permanent.Drinks $.Conference "drinks")}}
           </div>
           {{end}}
 
@@ -178,11 +170,7 @@
             <h3>
               {{template "localized" (ui "snacks" $.Conference)}}
             </h3>
-            <ul>
-              {{range $.Permanent.Snacks}}
-              <li>{{template "localized" (localize .Name $.Conference)}}{{template "availability" (availability . $.Conference)}}{{template "variants" (variants . $.Conference)}}</li>
-              {{end}}
-            </ul>
+            {{template "responsive-price-tables" (priceTables $.Permanent.Snacks $.Conference "snacks")}}
           </div>
           {{end}}
         </aside>
@@ -259,13 +247,46 @@
 
 {{define "price"}}{{$view := .}}{{if .Price}}<span class="price">{{range $index, $language := .Languages}}<span data-lang-content="{{$language}}"{{if $index}} hidden{{end}}>{{formatPrice $view.Price $language $view.Currency}}</span>{{end}}</span>{{end}}{{end}}
 
-{{define "prices"}}{{if not .Conference.HidePrices}}{{if or .Item.PriceNormal .Item.PriceLarge}}<span class="size-prices">{{if .Item.PriceNormal}}<span class="size-price">{{template "localized" (ui "regular" .Conference)}}{{template "price" (priceView .Item.PriceNormal .Conference)}}</span>{{end}}{{if .Item.PriceLarge}}<span class="size-price">{{template "localized" (ui "large" .Conference)}}{{template "price" (priceView .Item.PriceLarge .Conference)}}</span>{{end}}</span>{{else}}{{template "price" (priceView .Item.Price .Conference)}}{{end}}{{end}}{{end}}
+{{define "prices"}}{{if not .Conference.HidePrices}}{{if or .Item.PriceSmall .Item.PriceNormal .Item.PriceLarge}}<span class="size-prices">{{if .Item.PriceSmall}}<span class="size-price">{{template "localized" (ui "small" .Conference)}}{{template "price" (priceView .Item.PriceSmall .Conference)}}</span>{{end}}{{if .Item.PriceNormal}}<span class="size-price">{{template "localized" (ui "regular" .Conference)}}{{template "price" (priceView .Item.PriceNormal .Conference)}}</span>{{end}}{{if .Item.PriceLarge}}<span class="size-price">{{template "localized" (ui "large" .Conference)}}{{template "price" (priceView .Item.PriceLarge .Conference)}}</span>{{end}}</span>{{else}}{{template "price" (priceView .Item.Price .Conference)}}{{end}}{{end}}{{end}}
 
 {{define "sold-out"}}{{if .SoldOut}}<span class="sold-out">{{template "localized" (ui "sold_out" .Conference)}}</span>{{end}}{{end}}
 
 {{define "availability"}}{{if .Item.SoldOut}}{{template "sold-out" (status true .Conference)}}{{else}}{{template "prices" .}}{{end}}{{end}}
 
 {{define "variants"}}{{if .Variants}}<span class="item-variants">{{range $index, $variant := .Variants}}{{if $index}} · {{end}}{{template "localized" (localize $variant $.Conference)}}{{end}}</span>{{end}}{{end}}
+
+{{define "responsive-price-tables"}}<div class="menu-table-compact">{{template "price-table" .Compact}}</div><div class="menu-tables-wide">{{range .Wide}}{{template "price-table" .}}{{end}}</div>{{end}}
+
+{{define "price-table"}}{{$table := .}}{{$conference := .Conference}}<table class="price-table">
+  {{if not $conference.HidePrices}}
+  <thead>
+    <tr>
+      <th scope="col"><span class="visually-hidden">{{template "localized" (ui $table.SectionKey $conference)}}</span></th>
+      {{if .HasSmall}}<th scope="col" class="price-size-heading">{{template "localized" (ui "small" $conference)}}</th>{{end}}
+      {{if .HasNormal}}<th scope="col" class="price-size-heading">{{template "localized" (ui "regular" $conference)}}</th>{{end}}
+      {{if .HasLarge}}<th scope="col" class="price-size-heading">{{template "localized" (ui "large" $conference)}}</th>{{end}}
+      {{if not (or .HasSmall .HasNormal .HasLarge)}}<th scope="col"><span class="visually-hidden">{{template "localized" (ui "price" $conference)}}</span></th>{{end}}
+    </tr>
+  </thead>
+  {{end}}
+  <tbody>
+    {{range .Items}}
+    <tr>
+      <th scope="row">{{template "localized" (localize .Name $conference)}}{{template "variants" (variants . $conference)}}</th>
+      {{if .SoldOut}}
+      <td colspan="{{$table.SizeColumns}}" class="coffee-wide-price">{{template "sold-out" (status true $conference)}}</td>
+      {{else if $conference.HidePrices}}
+      {{else if or .PriceSmall .PriceNormal .PriceLarge}}
+      {{if $table.HasSmall}}<td>{{template "price" (priceView .PriceSmall $conference)}}</td>{{end}}
+      {{if $table.HasNormal}}<td>{{template "price" (priceView .PriceNormal $conference)}}</td>{{end}}
+      {{if $table.HasLarge}}<td>{{template "price" (priceView .PriceLarge $conference)}}</td>{{end}}
+      {{else}}
+      <td colspan="{{$table.SizeColumns}}" class="coffee-wide-price">{{template "price" (priceView .Price $conference)}}</td>
+      {{end}}
+    </tr>
+    {{end}}
+  </tbody>
+</table>{{end}}
 
 {{define "regulatory-item"}}{{if .Regulatory.Present}}<div class="regulatory-item"><strong>{{template "localized" (localize .Name .Conference)}}</strong>{{with .Regulatory}}{{if .Allergens}}<div class="regulatory-section"><b>{{template "localized" (ui "allergens" $.Conference)}}</b><span>{{range $index, $value := .Allergens}}{{if $index}}, {{end}}{{template "localized" (localize $value $.Conference)}}{{end}}</span></div>{{end}}{{if .Additives}}<div class="regulatory-section"><b>{{template "localized" (ui "additives" $.Conference)}}</b><span>{{range $index, $value := .Additives}}{{if $index}}, {{end}}{{template "localized" (localize $value $.Conference)}}{{end}}</span></div>{{end}}{{if .Notices}}<div class="regulatory-section"><b>{{template "localized" (ui "notices" $.Conference)}}</b><span>{{range $index, $value := .Notices}}{{if $index}}, {{end}}{{template "localized" (localize $value $.Conference)}}{{end}}</span></div>{{end}}{{end}}</div>{{end}}{{end}}
 

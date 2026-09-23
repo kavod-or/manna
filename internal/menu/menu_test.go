@@ -363,18 +363,18 @@ func TestCoffeeItems(t *testing.T) {
 }
 
 func TestSizePrices(t *testing.T) {
-	for _, fields := range []string{"price_normal: 0", "price_large: 4.20", "price_normal: 3.20\n      price_large: 4.20"} {
+	for _, fields := range []string{"price_small: 1.50", "price_normal: 0", "price_large: 4.20", "price_small: 2.50\n      price_normal: 3.20\n      price_large: 4.20"} {
 		source := strings.Replace(validMenu, "- id: water", "- id: water\n      "+fields, 1)
 		config, err := Decode(strings.NewReader(source))
 		if err != nil {
 			t.Fatal(err)
 		}
 		item := config.Permanent.Drinks[0]
-		if item.PriceNormal == nil && item.PriceLarge == nil {
+		if item.PriceSmall == nil && item.PriceNormal == nil && item.PriceLarge == nil {
 			t.Fatal("size prices missing")
 		}
 	}
-	for _, fields := range []string{"price_normal: -1", "price_large: 1.234", "price: 2\n      price_large: 3"} {
+	for _, fields := range []string{"price_small: -1", "price_normal: -1", "price_large: 1.234", "price: 2\n      price_small: 1", "price: 2\n      price_large: 3"} {
 		source := strings.Replace(validMenu, "- id: water", "- id: water\n      "+fields, 1)
 		if _, err := Decode(strings.NewReader(source)); err == nil {
 			t.Fatalf("accepted %s", fields)

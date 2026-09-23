@@ -76,6 +76,21 @@ type priceView struct {
 	Currency  menu.Currency
 }
 
+type priceTableView struct {
+	Items       []menu.Item
+	Conference  menu.Conference
+	SectionKey  string
+	HasSmall    bool
+	HasNormal   bool
+	HasLarge    bool
+	SizeColumns int
+}
+
+type responsivePriceTablesView struct {
+	Compact priceTableView
+	Wide    []priceTableView
+}
+
 var interfaceText = map[string]menu.Localized{
 	"meals":        interfaceTranslation("Essen", "Meals", "Еда"),
 	"refreshments": interfaceTranslation("Getränke & Snacks", "Drinks & Snacks", "Напитки и снеки"),
@@ -91,6 +106,8 @@ var interfaceText = map[string]menu.Localized{
 	"full_day":     interfaceTranslation("Der ganze Tag", "The full day", "Меню на весь день"),
 	"enjoy":        interfaceTranslation("Guten Appetit!", "Enjoy your meal!", "Приятного аппетита!"),
 	"sold_out":     interfaceTranslation("Ausverkauft", "Sold out", "Распродано"),
+	"price":        interfaceTranslation("Preis", "Price", "Цена"),
+	"small":        interfaceTranslation("Klein", "Small", "Маленький"),
 	"regular":      interfaceTranslation("Normal", "Regular", "Обычный"),
 	"large":        interfaceTranslation("Groß", "Large", "Большой"),
 	"food_info":    interfaceTranslation("Allergene & Lebensmittelinfos", "Allergens & food information", "Аллергены и информация о продукте"),
@@ -111,6 +128,45 @@ var adminStaticAssets = map[string]struct{}{
 
 func interfaceTranslation(de, en, ru string) menu.Localized {
 	return menu.Localized{DE: de, EN: en, Other: map[string]string{"ru": ru}}
+}
+
+func newPriceTableView(items []menu.Item, conference menu.Conference, sectionKey string) priceTableView {
+	view := priceTableView{Items: items, Conference: conference, SectionKey: sectionKey}
+	if !conference.HidePrices {
+		for _, item := range items {
+			view.HasSmall = view.HasSmall || item.PriceSmall != nil
+			view.HasNormal = view.HasNormal || item.PriceNormal != nil
+			view.HasLarge = view.HasLarge || item.PriceLarge != nil
+		}
+	}
+	for _, present := range []bool{view.HasSmall, view.HasNormal, view.HasLarge} {
+		if present {
+			view.SizeColumns++
+		}
+	}
+	if view.SizeColumns == 0 {
+		view.SizeColumns = 1
+	}
+	return view
+}
+
+func splitPriceTableViews(items []menu.Item, conference menu.Conference, sectionKey string) []priceTableView {
+	if len(items) == 0 {
+		return nil
+	}
+	middle := (len(items) + 1) / 2
+	tables := []priceTableView{newPriceTableView(items[:middle], conference, sectionKey)}
+	if middle < len(items) {
+		tables = append(tables, newPriceTableView(items[middle:], conference, sectionKey))
+	}
+	return tables
+}
+
+func newResponsivePriceTablesView(items []menu.Item, conference menu.Conference, sectionKey string) responsivePriceTablesView {
+	return responsivePriceTablesView{
+		Compact: newPriceTableView(items, conference, sectionKey),
+		Wide:    splitPriceTableViews(items, conference, sectionKey),
+	}
 }
 
 func New(events map[string]menu.Loader, templates fs.FS, static fs.FS, logger *slog.Logger) (http.Handler, error) {
@@ -171,6 +227,7 @@ func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, con
 			}
 			return price.Localized(language, currency)
 		},
+		"priceTables": newResponsivePriceTablesView,
 		"tag": func(tags map[string]menu.Localized, id, language string) string {
 			value, ok := tags[id]
 			if !ok {
