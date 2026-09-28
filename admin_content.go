@@ -560,7 +560,16 @@ func (root *rootedFS) verifyWritable() error {
 		return err
 	}
 	manifest, err := root.root.ReadFile(eventManifestFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		if createErr := root.writeNewFile(eventManifestFile, []byte("events: []\n")); createErr != nil && !errors.Is(createErr, fs.ErrExist) {
+			return createErr
+		}
+		manifest, err = root.root.ReadFile(eventManifestFile)
+	}
 	if err != nil {
+		return err
+	}
+	if _, err := decodeEventEntries(bytes.NewReader(manifest), eventManifestFile); err != nil {
 		return err
 	}
 	// Replacing the manifest with identical bytes verifies that it supports the

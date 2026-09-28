@@ -8,4 +8,4 @@ dev.sum
 .env.*
 !.env.example
 content/*
-!content/events.yaml
+!content/.gitkeep

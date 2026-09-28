@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -20,25 +21,55 @@ type Localized struct {
 	Other map[string]string `yaml:",inline"`
 }
 
+// MarshalJSON keeps translations as a flat object, matching their YAML shape.
+// The admin UI can therefore handle every configured language without knowing
+// about the Go representation used for the two most common languages.
+func (localized Localized) MarshalJSON() ([]byte, error) {
+	translations := make(map[string]string, len(localized.Other)+2)
+	if localized.DE != "" {
+		translations["de"] = localized.DE
+	}
+	if localized.EN != "" {
+		translations["en"] = localized.EN
+	}
+	for language, value := range localized.Other {
+		translations[language] = value
+	}
+	return json.Marshal(translations)
+}
+
+func (localized *Localized) UnmarshalJSON(data []byte) error {
+	var translations map[string]string
+	if err := json.Unmarshal(data, &translations); err != nil {
+		return err
+	}
+	localized.DE = translations["de"]
+	localized.EN = translations["en"]
+	delete(translations, "de")
+	delete(translations, "en")
+	localized.Other = translations
+	return nil
+}
+
 type Config struct {
-	Conference Conference            `yaml:"conference"`
-	Tags       map[string]Localized  `yaml:"tags"`
-	Regulatory map[string]Regulatory `yaml:"regulatory"`
-	Permanent  Permanent             `yaml:"permanent"`
-	Days       []Day                 `yaml:"days"`
+	Conference Conference            `yaml:"conference" json:"conference"`
+	Tags       map[string]Localized  `yaml:"tags,omitempty" json:"tags"`
+	Regulatory map[string]Regulatory `yaml:"regulatory,omitempty" json:"regulatory"`
+	Permanent  Permanent             `yaml:"permanent" json:"permanent"`
+	Days       []Day                 `yaml:"days" json:"days"`
 }
 
 type Conference struct {
-	Currency      Currency  `yaml:"currency"`
-	HidePrices    bool      `yaml:"hide_prices"`
-	Payment       Localized `yaml:"payment"`
-	Languages     []string  `yaml:"languages"`
-	SeriousMode   bool      `yaml:"serious_mode"`
-	EasterEggMode string    `yaml:"easter_egg_mode"`
-	TimeZone      string    `yaml:"timezone"`
-	Logo          string    `yaml:"logo"`
-	Name          Localized `yaml:"name"`
-	Location      Localized `yaml:"location"`
+	Currency      Currency  `yaml:"currency,omitempty" json:"currency"`
+	HidePrices    bool      `yaml:"hide_prices,omitempty" json:"hide_prices"`
+	Payment       Localized `yaml:"payment,omitempty" json:"payment"`
+	Languages     []string  `yaml:"languages" json:"languages"`
+	SeriousMode   bool      `yaml:"serious_mode,omitempty" json:"serious_mode"`
+	EasterEggMode string    `yaml:"easter_egg_mode,omitempty" json:"easter_egg_mode"`
+	TimeZone      string    `yaml:"timezone" json:"timezone"`
+	Logo          string    `yaml:"logo,omitempty" json:"logo"`
+	Name          Localized `yaml:"name" json:"name"`
+	Location      Localized `yaml:"location" json:"location"`
 }
 
 func (conference Conference) EffectiveCurrency() Currency {
@@ -49,66 +80,66 @@ func (conference Conference) EffectiveCurrency() Currency {
 }
 
 type Permanent struct {
-	Coffee []Item `yaml:"coffee"`
-	Drinks []Item `yaml:"drinks"`
-	Snacks []Item `yaml:"snacks"`
+	Coffee []Item `yaml:"coffee,omitempty" json:"coffee"`
+	Drinks []Item `yaml:"drinks,omitempty" json:"drinks"`
+	Snacks []Item `yaml:"snacks,omitempty" json:"snacks"`
 }
 
 type Day struct {
-	FoodTrucks []FoodTruck `yaml:"food_trucks"`
-	Date       string      `yaml:"date"`
-	Services   []Service   `yaml:"services"`
+	FoodTrucks []FoodTruck `yaml:"food_trucks,omitempty" json:"food_trucks"`
+	Date       string      `yaml:"date" json:"date"`
+	Services   []Service   `yaml:"services" json:"services"`
 }
 
 type FoodTruck struct {
-	Items       []Item       `yaml:"items"`
-	Times       []TimeWindow `yaml:"times"`
-	Payment     Localized    `yaml:"payment"`
-	ID          string       `yaml:"id"`
-	Name        Localized    `yaml:"name"`
-	Description Localized    `yaml:"description"`
-	Location    Localized    `yaml:"location"`
-	From        string       `yaml:"from"`
-	Until       string       `yaml:"until"`
+	Items       []Item       `yaml:"items,omitempty" json:"items"`
+	Times       []TimeWindow `yaml:"times,omitempty" json:"times"`
+	Payment     Localized    `yaml:"payment,omitempty" json:"payment"`
+	ID          string       `yaml:"id" json:"id"`
+	Name        Localized    `yaml:"name" json:"name"`
+	Description Localized    `yaml:"description" json:"description"`
+	Location    Localized    `yaml:"location" json:"location"`
+	From        string       `yaml:"from,omitempty" json:"from"`
+	Until       string       `yaml:"until,omitempty" json:"until"`
 }
 
 type TimeWindow struct {
-	From  string `yaml:"from"`
-	Until string `yaml:"until"`
+	From  string `yaml:"from" json:"from"`
+	Until string `yaml:"until" json:"until"`
 }
 
 type Service struct {
-	SoldOut     bool      `yaml:"sold_out"`
-	PriceSmall  *Price    `yaml:"price_small"`  // Accepted for compatibility; service prices are not displayed.
-	PriceNormal *Price    `yaml:"price_normal"` // Accepted for compatibility; service prices are not displayed.
-	PriceLarge  *Price    `yaml:"price_large"`  // Accepted for compatibility; service prices are not displayed.
-	Price       *Price    `yaml:"price"`        // Accepted for compatibility; service prices are not displayed.
-	ID          string    `yaml:"id"`
-	Title       Localized `yaml:"title"`
-	Subtitle    Localized `yaml:"subtitle"`
-	From        string    `yaml:"from"`
-	Until       string    `yaml:"until"`
-	Items       []Item    `yaml:"items"`
+	SoldOut     bool      `yaml:"sold_out,omitempty" json:"sold_out"`
+	PriceSmall  *Price    `yaml:"price_small,omitempty" json:"price_small,omitempty"`   // Accepted for compatibility; service prices are not displayed.
+	PriceNormal *Price    `yaml:"price_normal,omitempty" json:"price_normal,omitempty"` // Accepted for compatibility; service prices are not displayed.
+	PriceLarge  *Price    `yaml:"price_large,omitempty" json:"price_large,omitempty"`   // Accepted for compatibility; service prices are not displayed.
+	Price       *Price    `yaml:"price,omitempty" json:"price,omitempty"`               // Accepted for compatibility; service prices are not displayed.
+	ID          string    `yaml:"id" json:"id"`
+	Title       Localized `yaml:"title" json:"title"`
+	Subtitle    Localized `yaml:"subtitle" json:"subtitle"`
+	From        string    `yaml:"from" json:"from"`
+	Until       string    `yaml:"until" json:"until"`
+	Items       []Item    `yaml:"items,omitempty" json:"items"`
 }
 
 type Item struct {
-	SoldOut     bool        `yaml:"sold_out"`
-	PriceSmall  *Price      `yaml:"price_small"`
-	PriceNormal *Price      `yaml:"price_normal"`
-	PriceLarge  *Price      `yaml:"price_large"`
-	Price       *Price      `yaml:"price"`
-	ID          string      `yaml:"id"`
-	Name        Localized   `yaml:"name"`
-	Description Localized   `yaml:"description"`
-	Variants    []Localized `yaml:"variants"`
-	Tags        []string    `yaml:"tags"`
+	SoldOut     bool        `yaml:"sold_out,omitempty" json:"sold_out"`
+	PriceSmall  *Price      `yaml:"price_small,omitempty" json:"price_small,omitempty"`
+	PriceNormal *Price      `yaml:"price_normal,omitempty" json:"price_normal,omitempty"`
+	PriceLarge  *Price      `yaml:"price_large,omitempty" json:"price_large,omitempty"`
+	Price       *Price      `yaml:"price,omitempty" json:"price,omitempty"`
+	ID          string      `yaml:"id" json:"id"`
+	Name        Localized   `yaml:"name" json:"name"`
+	Description Localized   `yaml:"description,omitempty" json:"description"`
+	Variants    []Localized `yaml:"variants,omitempty" json:"variants"`
+	Tags        []string    `yaml:"tags,omitempty" json:"tags"`
 }
 
 // Regulatory holds item-specific declarations shown before a guest orders.
 type Regulatory struct {
-	Allergens []Localized `yaml:"allergens"`
-	Additives []Localized `yaml:"additives"`
-	Notices   []Localized `yaml:"notices"`
+	Allergens []Localized `yaml:"allergens,omitempty" json:"allergens"`
+	Additives []Localized `yaml:"additives,omitempty" json:"additives"`
+	Notices   []Localized `yaml:"notices,omitempty" json:"notices"`
 }
 
 func (regulatory Regulatory) Present() bool {

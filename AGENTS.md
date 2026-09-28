@@ -43,7 +43,7 @@ The reload tool is managed separately through `dev.mod` and `dev.sum`. Keep deve
 
 ## Content and security boundaries
 
-- `content/events.yaml` is the tracked empty event manifest. Runtime event menus and branding are ignored. Do not commit deployment event data, `.env` files, or credentials.
+- `content/events.yaml`, event menus, and branding are ignored runtime data. Admin startup creates an empty manifest when needed; a missing manifest otherwise means no events. Do not commit deployment event data, `.env` files, or credentials.
 - Event creation and removal may update the runtime manifest only through the dedicated admin boundary. Derive filenames from validated route slugs, require exact destructive confirmation and manifest revisions, and never expose arbitrary manifest paths to clients.
 - Preserve strict menu validation, revision conflict checks, atomic file replacement, and restrictions on filesystem paths and uploaded assets.
 - Preserve admin authentication, HTTPS requirements for remote access, and explicit trusted-proxy configuration. Never use the development password in deployment examples as a production credential.

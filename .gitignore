@@ -6,4 +6,4 @@
 !.env.example
 docker-compose.yaml
 /content/*
-!/content/events.yaml
+!/content/.gitkeep

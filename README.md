@@ -7,7 +7,7 @@ Manna is a small, responsive conference catering guide. It supports multiple eve
 - responsive and accessible design without a frontend framework
 - server-rendered HTML
 - configurable language switch that matches the browser language and otherwise defaults to the first configured language
-- separate event URLs mapped to runtime menu files by the tracked, initially empty `content/events.yaml`
+- separate event URLs mapped by an ignored runtime `content/events.yaml`; fresh checkouts contain no event data
 - YAML as the single source of truth for menu content
 - templates and assets embedded in one Go binary
 - gzip compression and content-hashed, long-lived browser caching for slow or crowded Wi-Fi
@@ -30,7 +30,7 @@ Then open:
 - admin editor: [http://localhost:8080/admin/](http://localhost:8080/admin/)
 - health check: [http://localhost:8080/healthz](http://localhost:8080/healthz)
 
-Sign in to the editor with username `admin` and password `manna-local-development`, then choose **Add event**. This predictable credential is only supplied by the local `make dev` command. Set `MANNA_ADMIN_PASSWORD` before running it to override the development password. `make dev` also sets `CONTENT_DIR=content`; created menu and branding files are ignored, while the tracked manifest records the event routes.
+Sign in to the editor with username `admin` and password `manna-local-development`, then choose **Add event**. This predictable credential is only supplied by the local `make dev` command. Set `MANNA_ADMIN_PASSWORD` before running it to override the development password. `make dev` also sets `CONTENT_DIR=content`; the ignored manifest, menus, and branding are runtime data and cannot conflict with Git pulls.
 
 To run without the editor, leave `MANNA_ADMIN_PASSWORD` unset:
 
@@ -56,7 +56,7 @@ Stop the deployment with `docker compose down`. Published menu files remain in t
 
 ## Edit the menu
 
-Each event has its own ignored runtime menu file selected by the tracked `content/events.yaml`, which starts with an empty event list.
+Each event has its own ignored runtime menu file selected by the ignored `content/events.yaml`. Admin startup creates that manifest with `events: []` when it is absent. Without admin editing, a missing manifest simply means there are no events.
 
 Configure lowercase language codes under `conference.languages`, in display and fallback order. If omitted, Manna uses `[de, en]`. Every translated name, description, title, subtitle, tag, and configured payment notice must contain all configured languages:
 
@@ -80,7 +80,7 @@ Language codes may include subtags such as `pt-br`. Manna includes interface lab
 
 ### Minimal complete event example
 
-To configure an event manually instead of using **Add event**, map its public URL in `content/events.yaml`:
+To configure an event manually instead of using **Add event**, create `content/events.yaml` and map its public URL:
 
 ```yaml
 events:
@@ -127,7 +127,7 @@ days:
 
 Replace the date and text, then open `/team-day`. Alternatively, use **Add event** in the admin editor to create a validated blank menu and its `events.yaml` entry together. Runtime event menus remain untracked so deployments and local checkouts do not conflict.
 
-Docker Compose bind-mounts only the `content` directory as writable, including `content/events.yaml`. Mounting the manifest as a separate file would prevent atomic replacement and is intentionally avoided. The container root filesystem remains read-only and the application still runs as non-root user `10001`, with all Linux capabilities dropped and `no-new-privileges`. Manna checks for updates at most twice per second, so no restart or rebuild is required after publishing.
+Docker Compose bind-mounts only the `content` directory as writable. Manna creates the ignored `content/events.yaml` there when admin editing starts. Mounting the manifest as a separate file would prevent atomic replacement and is intentionally avoided. The container root filesystem remains read-only and the application still runs as non-root user `10001`, with all Linux capabilities dropped and `no-new-privileges`. Manna checks for updates at most twice per second, so no restart or rebuild is required after publishing.
 
 Without `CONTENT_DIR`, the application uses the manifest template and menus embedded at build time.
 
@@ -328,7 +328,7 @@ The JavaScript tests require Node.js with `node --test` support.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP port used by the web server |
-| `CONTENT_DIR` | empty | Optional directory containing `events.yaml` plus its event menus and branding |
+| `CONTENT_DIR` | empty | Optional directory for the ignored runtime `events.yaml`, event menus, and branding |
 | `MANNA_ADMIN_PASSWORD` | empty | Enables `/admin/` with the fixed username `admin`; must contain at least 16 characters and requires writable external content |
 | `MANNA_ADMIN_TRUST_PROXY_HTTPS` | `false` | Allow HTTPS forwarding headers only from explicitly trusted proxy CIDRs |
 | `MANNA_ADMIN_TRUSTED_PROXY_CIDRS` | empty | Comma-separated proxy CIDRs required when proxy HTTPS trust is enabled, for example `127.0.0.1/32,::1/128` |
@@ -454,7 +454,7 @@ The clock updates every 15 seconds and when returning to the tab. Selecting a da
 
 ## Multiple events
 
-The repository includes an empty `content/events.yaml`. The admin editor updates it when events are added or removed; a manual manifest uses the same format:
+The admin editor creates and updates the ignored `content/events.yaml` when events are added or removed. A manual manifest uses the same format:
 
 ```yaml
 events:
@@ -466,7 +466,7 @@ Each menu uses the same conference, days, food trucks, and refreshments format. 
 
 Event URLs are intentionally public and require no login or access token. Anyone who knows, guesses, or receives an event URL can open its menu directly. The QR code provides a convenient link; scanning it is not required for access. The root page does not list events.
 
-`make dev` and Docker Compose use `CONTENT_DIR` to read external files. Menu files and `events.yaml` are checked for updates at most twice per second. Events can be added or removed through the admin without restarting the app; manual manifest edits can also rename or remap them. Invalid edits keep the last valid menus and route set online.
+`make dev` and Docker Compose use `CONTENT_DIR` to read external files. A missing `events.yaml` is an empty event list; admin startup creates the file so it can be updated atomically. Menu files and the manifest are checked for updates at most twice per second. Events can be added or removed through the admin without restarting the app; manual manifest edits can also rename or remap them. Invalid edits keep the last valid menus and route set online.
 
 ## Payment information
 

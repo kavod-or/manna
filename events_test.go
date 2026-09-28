@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,11 +9,10 @@ import (
 )
 
 func TestEmbeddedEvents(t *testing.T) {
-	data, err := fs.ReadFile(assets, "content/events.yaml")
+	content, err := fs.Sub(assets, "content")
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := fstest.MapFS{"events.yaml": {Data: data}}
 	events, err := loadEventFS(content)
 	if err != nil {
 		t.Fatal(err)
@@ -24,12 +22,16 @@ func TestEmbeddedEvents(t *testing.T) {
 	}
 }
 
-func TestEventManifestIsRequired(t *testing.T) {
+func TestMissingEventManifestIsAnEmptyList(t *testing.T) {
 	content := fstest.MapFS{
 		"runtime.yaml": {Data: []byte(testMenu("Runtime"))},
 	}
-	if _, err := loadEventFS(content); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("missing manifest error = %v", err)
+	events, err := loadEventFS(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("missing manifest loaded events: %#v", events)
 	}
 }
 

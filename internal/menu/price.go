@@ -39,6 +39,15 @@ func (price *Price) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
+// MarshalYAML writes the internal minor-unit representation as a menu amount.
+func (price Price) MarshalYAML() (interface{}, error) {
+	return &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Tag:   "!!float",
+		Value: fmt.Sprintf("%d.%02d", price/100, price%100),
+	}, nil
+}
+
 func (price Price) German() string {
 	return price.localized("de", Euro)
 }

@@ -1,8 +1,11 @@
 package menu
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const validMenu = `
@@ -144,6 +147,46 @@ func TestAdditionalLanguages(t *testing.T) {
 		if _, err := Decode(strings.NewReader(invalid)); err == nil {
 			t.Fatalf("accepted languages %s", declaration)
 		}
+	}
+}
+
+func TestAdminSerializationRoundTrip(t *testing.T) {
+	source := strings.NewReplacer(
+		"conference:", "conference:\n  languages: [de, en, fr]",
+		"{de: Konferenz, en: Conference}", "{de: Konferenz, en: Conference, fr: Conférence}",
+		"{de: Foyer, en: Foyer}", "{de: Foyer, en: Foyer, fr: Hall}",
+		"{de: Vegetarisch, en: Vegetarian}", "{de: Vegetarisch, en: Vegetarian, fr: Végétarien}",
+		"{de: Wasser, en: Water}", "{de: Wasser, en: Water, fr: Eau}",
+		"{de: Mittagessen, en: Lunch}", "{de: Mittagessen, en: Lunch, fr: Déjeuner}",
+		"{de: Frisch, en: Fresh}", "{de: Frisch, en: Fresh, fr: Frais}",
+	).Replace(validMenu)
+	source = strings.Replace(source, "      name: {de: Wasser, en: Water, fr: Eau}", "      price: 2.50\n      name: {de: Wasser, en: Water, fr: Eau}", 1)
+	config, err := Decode(strings.NewReader(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	encodedJSON, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fromAdmin Config
+	if err := json.Unmarshal(encodedJSON, &fromAdmin); err != nil {
+		t.Fatal(err)
+	}
+	encodedYAML, err := yaml.Marshal(fromAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTripped, err := Decode(strings.NewReader(string(encodedYAML)))
+	if err != nil {
+		t.Fatalf("generated YAML is invalid:\n%s\n%v", encodedYAML, err)
+	}
+	if got := roundTripped.Permanent.Drinks[0].Name.Exact("fr"); got != "Eau" {
+		t.Fatalf("French translation = %q, want Eau", got)
+	}
+	if price := roundTripped.Permanent.Drinks[0].Price; price == nil || *price != 250 {
+		t.Fatalf("round-tripped price = %v, want 250 cents", price)
 	}
 }
 

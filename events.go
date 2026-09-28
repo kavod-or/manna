@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -151,6 +152,9 @@ func loadEventRoutes(content fs.FS, current map[string]eventRoute) (map[string]e
 
 func loadEventEntries(content fs.FS) ([]eventEntry, error) {
 	file, err := content.Open(eventManifestFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []eventEntry{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}

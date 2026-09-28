@@ -401,7 +401,7 @@ func TestRootedContentWriteCheckCleansUpProbe(t *testing.T) {
 	}
 }
 
-func TestRootedContentWriteCheckRequiresManifest(t *testing.T) {
+func TestRootedContentWriteCheckCreatesIgnoredRuntimeManifest(t *testing.T) {
 	contentDir := t.TempDir()
 	rootHandle, err := os.OpenRoot(contentDir)
 	if err != nil {
@@ -409,15 +409,22 @@ func TestRootedContentWriteCheckRequiresManifest(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rootHandle.Close() })
 	root := &rootedFS{root: rootHandle}
-	if err := root.verifyWritable(); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("missing manifest error = %v", err)
+	if err := root.verifyWritable(); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(contentDir, eventManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(manifest) != "events: []\n" {
+		t.Fatalf("runtime manifest = %q", manifest)
 	}
 	entries, err := os.ReadDir(contentDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("write probe remained after failed check: %#v", entries)
+	if len(entries) != 1 {
+		t.Fatalf("write probe remained after initialization: %#v", entries)
 	}
 }
 
