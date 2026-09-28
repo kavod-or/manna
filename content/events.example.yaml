@@ -1,5 +1,0 @@
-events:
-  - path: /example-conference
-    menu: menu.yaml
-  - path: /community-day
-    menu: community-day.yaml

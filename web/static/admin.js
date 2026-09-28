@@ -1,6 +1,8 @@
 (() => {
   const elements = {
     eventSelect: document.getElementById('event-select'),
+    addEvent: document.getElementById('add-event-button'),
+    deleteEvent: document.getElementById('delete-event-button'),
     form: document.getElementById('menu-form'),
     tabs: document.getElementById('editor-tabs'),
     status: document.getElementById('editor-status'),
@@ -15,8 +17,9 @@
   };
   if (!elements.form) return;
 
-  const state = {path: '', revision: '', config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
+  const state = {path: '', revision: '', manifestRevision: '', canManageEvents: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
   const tabs = [['event', 'Event'], ['permanent', 'Permanent menu'], ['schedule', 'Schedule'], ['regulatory', 'Declarations'], ['yaml', 'YAML']];
+  let previewTimer = 0;
   const eventSlug = (eventPath) => encodeURIComponent(eventPath.replace(/^\//, ''));
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const snapshot = () => state.config ? JSON.stringify(state.config) : '';
@@ -50,15 +53,17 @@
   function updateControls() {
     const loaded = Boolean(state.path && state.revision && (state.config || isYAML()));
     elements.eventSelect.disabled = state.busy || elements.eventSelect.options.length === 0;
+    elements.addEvent.disabled = state.busy || !state.canManageEvents || !state.manifestRevision;
+    elements.deleteEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
     elements.validate.disabled = state.busy || !loaded;
     elements.publish.disabled = state.busy || !loaded || !isDirty();
     elements.reload.disabled = state.busy || !loaded;
     for (const input of elements.form.querySelectorAll?.('input, textarea, select, button') || []) input.disabled = state.busy || !loaded;
   }
 
-  function changed() {
+  function changed(options = {}) {
     updateControls();
-    renderPreview();
+    renderPreview(!options.immediatePreview);
     if (isDirty()) setStatus('You have unpublished changes.', 'warning');
   }
 
@@ -130,17 +135,83 @@
     }
   }
 
-  async function loadEvents() {
+  function clearEvent() {
+    state.path = ''; state.revision = ''; state.config = null; state.saved = '';
+    state.yaml = ''; state.savedYAML = ''; state.previewLogo = null; state.publishedLogo = '';
+    elements.form.replaceChildren();
+    elements.tabs.hidden = true;
+    elements.previewPanel.hidden = true;
+    updatePublicLink();
+  }
+
+  async function loadEvents(preferredPath = '') {
     setBusy(true);
     setStatus('Loading events…');
     try {
       const body = await requestJSON('/admin/api/events');
+      state.manifestRevision = body.revision || '';
+      state.canManageEvents = Boolean(body.can_manage);
       writeOptions(body);
-      if (!body.events?.length) return setStatus('No existing events are available.', 'warning');
-      elements.eventSelect.value = body.events[0].path;
-      await loadEvent(body.events[0].path, false);
+      if (!body.events?.length) {
+        clearEvent();
+        setStatus('No events exist yet. Add one to create its menu and public route.', 'warning');
+        return;
+      }
+      const selected = body.events.some((event) => event.path === preferredPath) ? preferredPath : body.events[0].path;
+      elements.eventSelect.value = selected;
+      await loadEvent(selected, false);
     } catch (error) { setStatus(error.message || 'Could not load events.', 'error'); }
     finally { setBusy(false); }
+  }
+
+  async function addEvent() {
+    if (state.busy || !state.canManageEvents) return;
+    if (isDirty() && !window.confirm('Discard your unpublished menu changes and add another event?')) return;
+    const entered = window.prompt('Enter the new public event path. Use lowercase letters, numbers, and hyphens, for example /team-day.');
+    if (entered == null) return;
+    const eventPath = entered.trim();
+    if (!/^\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(eventPath)) {
+      setStatus('Use a path such as /team-day with lowercase letters, numbers, and single hyphens.', 'error');
+      return;
+    }
+    if (!window.confirm(`Create ${eventPath} with a blank menu and publish its public route?`)) return;
+    setBusy(true); setStatus(`Creating ${eventPath}…`);
+    try {
+      const body = await requestJSON('/admin/api/events', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
+        body: JSON.stringify({path: eventPath, revision: state.manifestRevision}),
+      });
+      state.manifestRevision = body.manifest_revision;
+      await loadEvents(eventPath);
+      setStatus(`${eventPath} was created with a blank menu. Review and publish your event details.`, 'success');
+    } catch (error) {
+      setStatus(error.status === 409 ? 'The event list changed or that path already exists. Reload and try again.' : (error.message || 'Could not create the event.'), error.status === 409 ? 'warning' : 'error');
+    } finally { setBusy(false); }
+  }
+
+  async function deleteEvent() {
+    if (state.busy || !state.path || !state.canManageEvents) return;
+    if (isDirty() && !window.confirm('Discard your unpublished changes before removing this event?')) return;
+    const eventPath = state.path;
+    const confirmation = window.prompt(`Permanently remove ${eventPath}, its menu file, and its uploaded logo? Type the full event path to confirm.`);
+    if (confirmation !== eventPath) {
+      if (confirmation != null) setStatus(`Removal cancelled. The confirmation must exactly match ${eventPath}.`, 'warning');
+      return;
+    }
+    if (!window.confirm(`This permanently deletes ${eventPath}. Continue?`)) return;
+    setBusy(true); setStatus(`Removing ${eventPath}…`);
+    try {
+      const body = await requestJSON(`/admin/api/events/${eventSlug(eventPath)}`, {
+        method: 'DELETE', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
+        body: JSON.stringify({revision: state.manifestRevision, confirmation}),
+      });
+      state.manifestRevision = body.revision;
+      clearEvent();
+      await loadEvents();
+      setStatus(`${eventPath} and its event-owned files were permanently removed.`, 'success');
+    } catch (error) {
+      setStatus(error.status === 409 ? 'The event list changed. Reload before removing this event.' : (error.message || 'Could not remove the event.'), error.status === 409 ? 'warning' : 'error');
+    } finally { setBusy(false); }
   }
 
   async function loadEvent(eventPath, confirmDiscard = true) {
@@ -388,7 +459,7 @@
     return `<section class="schedule"><div class="section-heading"><p class="eyebrow">${esc(copy.program)}</p><h2>${esc(copy.fullDay)}</h2></div><div class="timeline">${(day.services || []).map((service) => `<article class="timeline-item"><div class="timeline-time"><time>${esc(service.from || '')}</time><span>– ${esc(service.until || '')}</span></div><div class="timeline-content"><h3>${esc(previewText(service.title) || service.id)}</h3>${service.sold_out ? `<span class="sold-out">${esc(copy.soldOut)}</span>` : ''}<p>${esc(previewText(service.subtitle))}</p><div class="timeline-dishes">${(service.items || []).map((item) => `<div><strong>${esc(previewText(item.name) || item.id)}</strong>${previewAvailability(item)}${previewVariants(item)}${previewText(item.description) ? `<small>${esc(previewText(item.description))}</small>` : ''}</div>`).join('')}</div></div></article>`).join('')}</div></section>`;
   }
 
-  function previewDocument() {
+  function previewMarkup() {
     const config = state.config;
     const language = state.previewLanguage;
     const copy = previewCopy[language.split('-')[0]] || previewCopy.en;
@@ -399,10 +470,32 @@
     const logo = uploadedLogo || (draftLogo && draftLogo === state.publishedLogo ? `/branding${state.path}` : (!draftLogo ? '/static/logo.png' : ''));
     const logoMarkup = logo ? `<img class="brand-logo" src="${esc(logo)}" alt="${esc(previewText(config.conference.name))}">` : '<span>Logo preview unavailable until this menu is published.</span>';
     const direction = ['ar', 'fa', 'he', 'ur'].includes(language.split('-')[0]) ? 'rtl' : 'ltr';
-    return `<!doctype html><html lang="${esc(language)}" dir="${direction}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/static/styles.css"></head><body><div class="site-shell"><header class="site-header"><span class="brand">${logoMarkup}</span><div class="header-tools"><div class="location">${esc(previewText(config.conference.location))}</div><div class="language-switch">${config.conference.languages.map((entry) => `<button type="button" aria-pressed="${entry === language}">${esc(entry.toUpperCase())}</button>`).join('<span></span>')}</div></div></header><section class="intro"><p class="eyebrow">${esc(previewText(config.conference.name))}</p>${previewText(config.conference.payment) ? `<p class="payment-notice">${esc(previewText(config.conference.payment))}</p>` : ''}</section><nav class="day-switcher">${config.days.map((entry, index) => `<button type="button" aria-pressed="${index === state.previewDay}"><time>${esc(entry.date || `Day ${index + 1}`)}</time></button>`).join('')}</nav><main class="day-panel is-active"><nav class="topic-nav"><a>${esc(copy.meals)}</a>${day.food_trucks?.length ? `<a>${esc(copy.trucks)}</a>` : ''}<a>${esc(copy.refreshments)}</a><a>${esc(copy.program)}</a></nav><section class="overview-grid"><div class="featured-meals">${service ? previewService(service) : '<article class="focus-card"><h2>Add a service to preview it</h2></article>'}</div><div class="side-column">${previewTrucks(day)}${previewPermanent()}</div></section>${previewSchedule(day)}</main><footer>${esc(copy.enjoy)}</footer></div></body></html>`;
+    const body = `<div class="site-shell"><header class="site-header"><span class="brand">${logoMarkup}</span><div class="header-tools"><div class="location">${esc(previewText(config.conference.location))}</div><div class="language-switch">${config.conference.languages.map((entry) => `<button type="button" aria-pressed="${entry === language}">${esc(entry.toUpperCase())}</button>`).join('<span></span>')}</div></div></header><section class="intro"><p class="eyebrow">${esc(previewText(config.conference.name))}</p>${previewText(config.conference.payment) ? `<p class="payment-notice">${esc(previewText(config.conference.payment))}</p>` : ''}</section><nav class="day-switcher">${config.days.map((entry, index) => `<button type="button" aria-pressed="${index === state.previewDay}"><time>${esc(entry.date || `Day ${index + 1}`)}</time></button>`).join('')}</nav><main class="day-panel is-active"><nav class="topic-nav"><a>${esc(copy.meals)}</a>${day.food_trucks?.length ? `<a>${esc(copy.trucks)}</a>` : ''}<a>${esc(copy.refreshments)}</a><a>${esc(copy.program)}</a></nav><section class="overview-grid"><div class="featured-meals">${service ? previewService(service) : '<article class="focus-card"><h2>Add a service to preview it</h2></article>'}</div><div class="side-column">${previewTrucks(day)}${previewPermanent()}</div></section>${previewSchedule(day)}</main><footer>${esc(copy.enjoy)}</footer></div>`;
+    return {language, direction, body, document: `<!doctype html><html lang="${esc(language)}" dir="${direction}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/static/styles.css"></head><body>${body}</body></html>`};
   }
 
-  function renderPreview() {
+  function writePreviewDocument() {
+    previewTimer = 0;
+    if (!state.config || !elements.preview) return;
+    const markup = previewMarkup();
+    const previewDocument = elements.preview.contentDocument;
+    if (elements.preview.srcdoc && previewDocument?.body && previewDocument.documentElement) {
+      const scrollTop = previewDocument.scrollingElement?.scrollTop || 0;
+      previewDocument.documentElement.lang = markup.language;
+      previewDocument.documentElement.dir = markup.direction;
+      previewDocument.body.innerHTML = markup.body;
+      if (previewDocument.scrollingElement) previewDocument.scrollingElement.scrollTop = scrollTop;
+      return;
+    }
+    elements.preview.srcdoc = markup.document;
+  }
+
+  function flushPreview() {
+    if (previewTimer) clearTimeout(previewTimer);
+    writePreviewDocument();
+  }
+
+  function renderPreview(deferDocument = false) {
     if (!state.config || !elements.preview) {
       if (elements.previewPanel) elements.previewPanel.hidden = true;
       return;
@@ -413,7 +506,9 @@
     elements.previewPanel.hidden = false;
     elements.previewLanguage.innerHTML = languages.map((language) => `<option value="${esc(language)}"${language === state.previewLanguage ? ' selected' : ''}>${esc(language.toUpperCase())}</option>`).join('');
     elements.previewDay.innerHTML = state.config.days.map((day, index) => `<option value="${index}"${index === state.previewDay ? ' selected' : ''}>${esc(dayLabel(day.date, index))}</option>`).join('');
-    elements.preview.srcdoc = previewDocument();
+    if (previewTimer) clearTimeout(previewTimer);
+    if (deferDocument) previewTimer = setTimeout(writePreviewDocument, 180);
+    else writePreviewDocument();
   }
 
   function renderYAML() {
@@ -483,7 +578,7 @@
     set(path, value);
     if (path.join('.') === 'conference.logo' && state.previewLogo?.filename !== value) state.previewLogo = null;
     if (rerenderLanguages && path.join('.') === 'conference.languages') render();
-    changed();
+    changed({immediatePreview: path.join('.') === 'conference.logo'});
   }
 
   async function validateMenu() {
@@ -610,6 +705,8 @@
   }
 
   elements.eventSelect.addEventListener('change', () => loadEvent(elements.eventSelect.value));
+  elements.addEvent.addEventListener('click', addEvent);
+  elements.deleteEvent.addEventListener('click', deleteEvent);
   elements.reload.addEventListener('click', () => loadEvent(state.path));
   elements.validate.addEventListener('click', validateMenu);
   elements.publish.addEventListener('click', publishMenu);
@@ -639,5 +736,5 @@
 
   updatePublicLink();
   const ready = loadEvents();
-  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addAt, removeAt, updateField, render});
+  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, deleteEvent, addAt, removeAt, updateField, render, flushPreview});
 })();

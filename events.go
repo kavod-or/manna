@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -37,10 +36,7 @@ type eventRegistry struct {
 
 var eventPathPattern = regexp.MustCompile(`^/[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-const (
-	eventManifestFile         = "events.yaml"
-	eventManifestTemplateFile = "events.example.yaml"
-)
+const eventManifestFile = "events.yaml"
 
 type rootedFS struct {
 	root *os.Root
@@ -154,20 +150,19 @@ func loadEventRoutes(content fs.FS, current map[string]eventRoute) (map[string]e
 }
 
 func loadEventEntries(content fs.FS) ([]eventEntry, error) {
-	manifestPath := eventManifestFile
-	file, err := content.Open(manifestPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		manifestPath = eventManifestTemplateFile
-		file, err = content.Open(manifestPath)
-	}
+	file, err := content.Open(eventManifestFile)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
+	return decodeEventEntries(file, eventManifestFile)
+}
+
+func decodeEventEntries(reader io.Reader, manifestPath string) ([]eventEntry, error) {
 	var manifest struct {
 		Events []eventEntry `yaml:"events"`
 	}
-	decoder := yaml.NewDecoder(file)
+	decoder := yaml.NewDecoder(reader)
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", manifestPath, err)
@@ -178,8 +173,8 @@ func loadEventEntries(content fs.FS) ([]eventEntry, error) {
 	}
 	seen := make(map[string]bool, len(manifest.Events))
 	for _, entry := range manifest.Events {
-		if !eventPathPattern.MatchString(entry.Path) || entry.Path == "/healthz" || entry.Path == "/static" || entry.Path == "/branding" || entry.Path == "/admin" {
-			return nil, fmt.Errorf("invalid or reserved event path %q", entry.Path)
+		if err := validateEventPath(entry.Path); err != nil {
+			return nil, err
 		}
 		if seen[entry.Path] {
 			return nil, fmt.Errorf("duplicate event path %q", entry.Path)
@@ -192,11 +187,18 @@ func loadEventEntries(content fs.FS) ([]eventEntry, error) {
 	return manifest.Events, nil
 }
 
+func validateEventPath(eventPath string) error {
+	if !eventPathPattern.MatchString(eventPath) || eventPath == "/healthz" || eventPath == "/static" || eventPath == "/branding" || eventPath == "/admin" {
+		return fmt.Errorf("invalid or reserved event path %q", eventPath)
+	}
+	return nil
+}
+
 func validateEventMenuPath(name string) error {
 	if !fs.ValidPath(name) || strings.Contains(name, `\`) || path.Ext(name) != ".yaml" {
 		return fmt.Errorf("invalid menu path %q: must be a relative .yaml file", name)
 	}
-	if name == eventManifestFile || name == eventManifestTemplateFile {
+	if name == eventManifestFile {
 		return fmt.Errorf("invalid menu path %q: event manifests cannot be used as menus", name)
 	}
 	return nil

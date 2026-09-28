@@ -124,6 +124,8 @@ select {
 .button.primary { color: white; background: var(--green); }
 .button.primary:hover:not(:disabled) { background: var(--green-hover); }
 .button.secondary { color: var(--green); background: transparent; }
+.button.danger { border-color: #c98277; color: var(--danger); background: var(--danger-soft); }
+.button.danger:hover:not(:disabled) { border-color: var(--danger); }
 .button:disabled { cursor: not-allowed; opacity: 0.45; }
 
 .editor-status {

@@ -7,7 +7,7 @@ Manna is a small, responsive conference catering guide. It supports multiple eve
 - responsive and accessible design without a frontend framework
 - server-rendered HTML
 - configurable language switch that matches the browser language and otherwise defaults to the first configured language
-- separate event URLs mapped to menu files in an ignored runtime `content/events.yaml`, with `content/events.example.yaml` as the tracked template
+- separate event URLs mapped to runtime menu files by the tracked, initially empty `content/events.yaml`
 - YAML as the single source of truth for menu content
 - templates and assets embedded in one Go binary
 - gzip compression and content-hashed, long-lived browser caching for slow or crowded Wi-Fi
@@ -27,11 +27,10 @@ make dev
 
 Then open:
 
-- event menu: [http://localhost:8080/example-conference](http://localhost:8080/example-conference)
 - admin editor: [http://localhost:8080/admin/](http://localhost:8080/admin/)
 - health check: [http://localhost:8080/healthz](http://localhost:8080/healthz)
 
-Sign in to the editor with username `admin` and password `manna-local-development`. This predictable credential is only supplied by the local `make dev` command. Set `MANNA_ADMIN_PASSWORD` before running it to override the development password. `make dev` also sets `CONTENT_DIR=content`, so validated changes published in the editor update the files in this checkout.
+Sign in to the editor with username `admin` and password `manna-local-development`, then choose **Add event**. This predictable credential is only supplied by the local `make dev` command. Set `MANNA_ADMIN_PASSWORD` before running it to override the development password. `make dev` also sets `CONTENT_DIR=content`; created menu and branding files are ignored, while the tracked manifest records the event routes.
 
 To run without the editor, leave `MANNA_ADMIN_PASSWORD` unset:
 
@@ -46,19 +45,18 @@ Copy the provided Compose and environment examples, generate a unique password o
 ```bash
 cp docker-compose.example.yaml docker-compose.yaml
 cp .env.example .env
-cp content/events.example.yaml content/events.yaml
 openssl rand -base64 32
 docker compose up --build -d
 docker compose logs -f manna
 ```
 
-Press `Ctrl+C` to leave the log view; the detached container keeps running. The event menu is now available at [http://localhost:8080/example-conference](http://localhost:8080/example-conference). Compose deliberately exposes Manna only on the host loopback interface. The admin editor also rejects plain HTTP received through Docker, so configure HTTPS before using `/admin/` in this setup; a complete reverse-proxy example is below.
+Press `Ctrl+C` to leave the log view; the detached container keeps running. Compose deliberately exposes Manna only on the host loopback interface. The admin editor rejects plain HTTP received through Docker, so configure HTTPS before using `/admin/`, then create the first event there; a complete reverse-proxy example is below.
 
 Stop the deployment with `docker compose down`. Published menu files remain in the host's `content` directory.
 
 ## Edit the menu
 
-Each event has its own menu file, selected by `content/events.yaml`. Copy the tracked `content/events.example.yaml` template to that ignored runtime path before customizing event routes. If the runtime file is absent, Manna falls back to the template. The example conference uses `content/menu.yaml`, and the community event uses `content/community-day.yaml`.
+Each event has its own ignored runtime menu file selected by the tracked `content/events.yaml`, which starts with an empty event list.
 
 Configure lowercase language codes under `conference.languages`, in display and fallback order. If omitted, Manna uses `[de, en]`. Every translated name, description, title, subtitle, tag, and configured payment notice must contain all configured languages:
 
@@ -82,13 +80,7 @@ Language codes may include subtags such as `pt-br`. Manna includes interface lab
 
 ### Minimal complete event example
 
-First copy the template when no runtime manifest exists, then map the public URL in `content/events.yaml`:
-
-```bash
-cp content/events.example.yaml content/events.yaml
-```
-
-The runtime file is ignored by Git, so server-specific routes do not dirty the checkout:
+To configure an event manually instead of using **Add event**, map its public URL in `content/events.yaml`:
 
 ```yaml
 events:
@@ -133,15 +125,15 @@ days:
             tags: [vegetarian]
 ```
 
-Replace the date and text, then open `/team-day`. The online admin editor intentionally cannot make the first `events.yaml` change; an operator must create the event mapping and initial file. After that, the editor can update `team-day.yaml`. See the tracked [`content/events.example.yaml`](content/events.example.yaml) manifest template and bundled [`content/menu.yaml`](content/menu.yaml) and [`content/community-day.yaml`](content/community-day.yaml) menus for complete examples.
+Replace the date and text, then open `/team-day`. Alternatively, use **Add event** in the admin editor to create a validated blank menu and its `events.yaml` entry together. Runtime event menus remain untracked so deployments and local checkouts do not conflict.
 
-Docker Compose bind-mounts only the `content` directory as writable so the admin editor can publish atomic file replacements, then overlays the host file selected by `MANNA_EVENTS_FILE` as read-only `events.yaml`. The copied `.env.example` selects the ignored runtime manifest; without that setting, Compose uses the tracked template. Neither the editor nor the application process can change the mounted manifest. The container root filesystem remains read-only and the application still runs as non-root user `10001`, with all Linux capabilities dropped and `no-new-privileges`. Manna checks for updates at most twice per second, so no restart or rebuild is required after publishing.
+Docker Compose bind-mounts only the `content` directory as writable, including `content/events.yaml`. Mounting the manifest as a separate file would prevent atomic replacement and is intentionally avoided. The container root filesystem remains read-only and the application still runs as non-root user `10001`, with all Linux capabilities dropped and `no-new-privileges`. Manna checks for updates at most twice per second, so no restart or rebuild is required after publishing.
 
 Without `CONTENT_DIR`, the application uses the manifest template and menus embedded at build time.
 
 ## Admin editor
 
-The optional editor manages the content of existing events with forms and writes the corresponding YAML in the background. It cannot add, remove, rename, or remap whole events because `events.yaml` is not exposed to the editor and is mounted read-only by Compose.
+The optional editor manages event menus and can add or remove event routes. Adding derives a new `<slug>.yaml` filename on the server and creates a valid blank menu. Removing requires typing the exact event path, checks the manifest revision, and permanently deletes the menu plus an unshared logo created by the admin uploader. Custom or shared branding files are retained.
 
 ### Publishing a menu
 
@@ -234,7 +226,7 @@ If nginx runs in a container instead, assign that proxy container a fixed addres
 
 ### Content permissions
 
-The container runs as the non-root UID `10001`. It must be able to read `events.yaml` and create, rename, and remove menu files in `content`. At startup, Manna verifies this by creating and removing a temporary `.events.yaml.manna-*` file in that directory; this does not modify the read-only event manifest. A `permission denied` error for that temporary file means UID `10001` cannot write to the host directory.
+The container runs as the non-root UID `10001`. It must be able to replace `events.yaml` and create, rename, and remove menu files in `content`. At startup, Manna verifies directory write access by creating and removing a temporary `.events.yaml.manna-*` file. A `permission denied` error means UID `10001` cannot write to the host directory.
 
 Do not map the container to host UID `0` when deploying from a root-owned checkout. Keep the container non-root and grant UID `10001` access with filesystem ACLs instead; the files remain owned by root:
 
@@ -255,7 +247,7 @@ Verify the mounted permissions without starting the web server:
 
 ```bash
 docker compose run --rm --entrypoint sh manna -c \
-  'test -r /app/content/events.yaml && test -w /app/content && test -w /app/content/menu.yaml'
+  'test -w /app/content/events.yaml && test -w /app/content'
 ```
 
 Verify that the container still runs as UID `10001` with `docker compose run --rm --entrypoint id manna`. Do not run Manna as root and do not make the directory world-writable.
@@ -281,6 +273,8 @@ Published files live in the host-mounted `content` directory, so they survive co
 - Access logs include the complete request endpoint, including admin event slugs, plus the method, status, and duration. They never include query strings, request bodies, or headers such as `Authorization`, so Basic Authentication passwords are not logged. Treat the local logs as sensitive operational data.
 - Menu paths stay rooted inside `CONTENT_DIR`; path traversal and escaping symlinks are rejected.
 - Publishing validates the complete menu, rejects stale revisions, and does not expose internal paths or raw storage errors to the browser.
+- Event creation accepts only lowercase slug routes, derives rather than accepts menu filenames, refuses existing routes/files, and uses a manifest revision to prevent lost updates.
+- Event removal requires exact-path confirmation, refuses shared menu deletion, preserves custom/shared branding, and checks revisions before deleting event-owned files.
 
 Keep `.env` out of source control. This repository ignores `.env` and `.env.*` while retaining the secret-free `.env.example`. To disable the editor in a non-Compose deployment, unset `MANNA_ADMIN_PASSWORD`. Compose intentionally requires the password; to run that deployment without an admin route, remove its `MANNA_ADMIN_PASSWORD` environment mapping and recreate the service.
 
@@ -290,7 +284,7 @@ To replace the Manna header logo for an event, place a PNG, JPEG, WebP, GIF, or 
 
 ```yaml
 conference:
-  logo: example-conference-logo.png
+  logo: event-logo.png
   name: {de: Beispiel Konferenz, en: Example Conference}
   # Keep the existing location and timezone fields.
 ```
@@ -334,7 +328,7 @@ The JavaScript tests require Node.js with `node --test` support.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP port used by the web server |
-| `CONTENT_DIR` | empty | Optional directory containing event menus and either runtime `events.yaml` or fallback `events.example.yaml` |
+| `CONTENT_DIR` | empty | Optional directory containing `events.yaml` plus its event menus and branding |
 | `MANNA_ADMIN_PASSWORD` | empty | Enables `/admin/` with the fixed username `admin`; must contain at least 16 characters and requires writable external content |
 | `MANNA_ADMIN_TRUST_PROXY_HTTPS` | `false` | Allow HTTPS forwarding headers only from explicitly trusted proxy CIDRs |
 | `MANNA_ADMIN_TRUSTED_PROXY_CIDRS` | empty | Comma-separated proxy CIDRs required when proxy HTTPS trust is enabled, for example `127.0.0.1/32,::1/128` |
@@ -460,21 +454,19 @@ The clock updates every 15 seconds and when returning to the tab. Selecting a da
 
 ## Multiple events
 
-Copy `content/events.example.yaml` to the Git-ignored `content/events.yaml`, then map event paths to menu files there:
+The repository includes an empty `content/events.yaml`. The admin editor updates it when events are added or removed; a manual manifest uses the same format:
 
 ```yaml
 events:
-  - path: /example-conference
-    menu: menu.yaml
-  - path: /community-day
-    menu: community-day.yaml
+  - path: /team-day
+    menu: team-day.yaml
 ```
 
-Each menu uses the same conference, days, food trucks, and refreshments format. Menu paths must be relative, end in `.yaml`, and cannot point to `events.yaml` or `events.example.yaml`. Set `conference.currency` in each menu to `euro` (€), `dollar` ($), or `schekel` (₪); it defaults to `euro` when omitted. Paths are unique lowercase slugs; `/`, `/healthz`, `/static`, and `/branding` are reserved. Generate each venue QR code for its full event URL. `/` displays only a centered German/English instruction to scan the venue QR code, and unknown paths return 404.
+Each menu uses the same conference, days, food trucks, and refreshments format. Menu paths must be relative, end in `.yaml`, and cannot point to `events.yaml`. Set `conference.currency` in each menu to `euro` (€), `dollar` ($), or `schekel` (₪); it defaults to `euro` when omitted. Paths are unique lowercase slugs; `/`, `/healthz`, `/static`, and `/branding` are reserved. Generate each venue QR code for its full event URL. `/` displays only a centered German/English instruction to scan the venue QR code, and unknown paths return 404.
 
 Event URLs are intentionally public and require no login or access token. Anyone who knows, guesses, or receives an event URL can open its menu directly. The QR code provides a convenient link; scanning it is not required for access. The root page does not list events.
 
-`make dev` and Docker Compose use `CONTENT_DIR` to read external files. Manna prefers `events.yaml` and falls back to `events.example.yaml` when the runtime manifest is absent. Menu files and the selected manifest are checked for updates at most twice per second. Events can be added, removed, renamed, or pointed to a different menu without restarting the app. Invalid edits keep the last valid menus and route set online. `MENU_PATH` has been replaced by `CONTENT_DIR`.
+`make dev` and Docker Compose use `CONTENT_DIR` to read external files. Menu files and `events.yaml` are checked for updates at most twice per second. Events can be added or removed through the admin without restarting the app; manual manifest edits can also rename or remap them. Invalid edits keep the last valid menus and route set online.
 
 ## Payment information
 

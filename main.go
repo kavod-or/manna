@@ -19,7 +19,7 @@ import (
 	"manna/internal/web"
 )
 
-//go:embed content web/templates/*.html web/static/*
+//go:embed content/events.yaml web/templates/*.html web/static/*
 var assets embed.FS
 
 const (

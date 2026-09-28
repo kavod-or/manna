@@ -37,6 +37,8 @@
           </select>
         </label>
         <div class="editor-actions">
+          <button id="add-event-button" class="button secondary" type="button" disabled>Add event</button>
+          <button id="delete-event-button" class="button danger" type="button" disabled>Remove event</button>
           <button id="reload-button" class="button secondary" type="button" disabled>Reload</button>
           <button id="validate-button" class="button secondary" type="button" disabled>Check menu</button>
           <button id="publish-button" class="button primary" type="button" disabled>Publish</button>
@@ -63,7 +65,7 @@
             <label>Day<select id="preview-day"></select></label>
           </div>
           <div class="preview-frame-shell">
-            <iframe id="menu-preview" title="Live preview of the event menu" sandbox="allow-scripts"></iframe>
+            <iframe id="menu-preview" title="Live preview of the event menu" sandbox="allow-same-origin"></iframe>
           </div>
           <p class="preview-help">The preview follows your form changes. Check and publish when it looks right.</p>
         </aside>

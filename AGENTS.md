@@ -13,7 +13,7 @@ Manna is a multilingual conference catering guide with multiple event URLs and a
 - `internal/admin/`: shared admin content interfaces and errors.
 - `internal/web/`: HTTP handlers, rendering, authentication, admin API, and asset delivery.
 - `web/templates/` and `web/static/`: public and admin UI templates, scripts, styles, and images.
-- `content/`: example menus, event manifest template, and branding assets.
+- `content/`: empty event manifest template plus ignored runtime menus and branding assets.
 - `tests/*.test.cjs`: JavaScript tests using Node's built-in test runner and VM/DOM stubs.
 - `README.md`: content schema, configuration, local development, and deployment documentation.
 
@@ -43,8 +43,8 @@ The reload tool is managed separately through `dev.mod` and `dev.sum`. Keep deve
 
 ## Content and security boundaries
 
-- `content/events.yaml` is an ignored runtime manifest. `content/events.example.yaml` is the tracked fallback/template. Do not commit local runtime manifests, `.env` files, or credentials.
-- The admin editor manages existing event content; it must not add, remove, or remap event routes through the manifest.
+- `content/events.yaml` is the tracked empty event manifest. Runtime event menus and branding are ignored. Do not commit deployment event data, `.env` files, or credentials.
+- Event creation and removal may update the runtime manifest only through the dedicated admin boundary. Derive filenames from validated route slugs, require exact destructive confirmation and manifest revisions, and never expose arbitrary manifest paths to clients.
 - Preserve strict menu validation, revision conflict checks, atomic file replacement, and restrictions on filesystem paths and uploaded assets.
 - Preserve admin authentication, HTTPS requirements for remote access, and explicit trusted-proxy configuration. Never use the development password in deployment examples as a production credential.
 - Use temporary directories and test fixtures for tests that publish content; avoid changing real event menus as a testing side effect.

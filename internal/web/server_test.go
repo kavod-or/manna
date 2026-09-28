@@ -544,16 +544,18 @@ func TestDrinksUseCoffeeTableLayout(t *testing.T) {
 	}
 }
 
-func TestFoodTrucksInExampleMenu(t *testing.T) {
-	file, err := os.Open("../../content/menu.yaml")
-	if err != nil {
-		t.Fatal(err)
+func TestFoodTrucksRenderAcrossDays(t *testing.T) {
+	truck := func(name string) menu.FoodTruck {
+		return menu.FoodTruck{
+			Name: menu.Localized{DE: name + " DE", EN: name + " EN"}, Description: menu.Localized{DE: "Beschreibung", EN: "Description"},
+			Location: menu.Localized{DE: "Hof", EN: "Courtyard"}, Payment: menu.Localized{DE: "Nur Karte", EN: "Card only"}, From: "11:00", Until: "14:00",
+		}
 	}
-	defer file.Close()
-	config, err := menu.Decode(file)
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := menu.Config{Days: []menu.Day{
+		{FoodTrucks: []menu.FoodTruck{truck("Pita"), truck("Pizza")}},
+		{FoodTrucks: []menu.FoodTruck{truck("Tacos")}},
+		{},
+	}}
 	handler, err := newTestServer(func() (menu.Config, error) { return config, nil }, os.DirFS("../.."), fstest.MapFS{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -779,7 +781,7 @@ func TestClientDoesNotExposeOtherEvents(t *testing.T) {
 					t.Errorf("%s exposes %s", path, name)
 				}
 			}
-			for _, forbidden := range []string{"events.yaml", "community-day.yaml"} {
+			for _, forbidden := range []string{"events.yaml", "private-menu.yaml"} {
 				if strings.Contains(string(body), forbidden) {
 					t.Errorf("%s exposes %s", path, forbidden)
 				}
@@ -795,7 +797,7 @@ func TestConfigurationAndStaticListingsAreNotPublic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/events.yaml", "/content/events.yaml", "/content/menu.yaml", "/content/community-day.yaml", "/static/", "/static/events.yaml", "/static/app.js.map", "/static/../content/events.yaml"} {
+	for _, path := range []string{"/events.yaml", "/content/events.yaml", "/content/private-menu.yaml", "/static/", "/static/events.yaml", "/static/app.js.map", "/static/../content/events.yaml"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest("GET", path, nil))
 		if response.Code == 200 || strings.Contains(response.Body.String(), "secret-event") {

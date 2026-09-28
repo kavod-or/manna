@@ -32,11 +32,16 @@ func TestAdminAPIListsAndReadsEvents(t *testing.T) {
 		t.Fatalf("list status = %d: %s", response.Code, response.Body.String())
 	}
 	var list struct {
-		Events []adminEventSummary `json:"events"`
+		Events    []adminEventSummary `json:"events"`
+		Revision  string              `json:"revision"`
+		CanManage bool                `json:"can_manage"`
 	}
 	decodeTestJSON(t, response, &list)
 	if len(list.Events) != 2 || list.Events[0].Path != "/alpha" || list.Events[1].Path != "/beta" {
 		t.Fatalf("events = %#v", list.Events)
+	}
+	if list.Revision != "manifest-1" || !list.CanManage {
+		t.Fatalf("event management metadata = %#v", list)
 	}
 
 	response = serveAdminAPI(handler, http.MethodGet, "/admin/api/events/alpha", "")
@@ -52,6 +57,37 @@ func TestAdminAPIListsAndReadsEvents(t *testing.T) {
 	response = serveAdminAPI(handler, http.MethodGet, "/admin/api/events/missing", "")
 	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), "event not found") {
 		t.Fatalf("missing event response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAdminAPICreatesAndDeletesEventsWithManifestRevision(t *testing.T) {
+	content := newStubAdminContent()
+	handler := newAdminAPITestServer(t, content)
+
+	response := serveAdminAPI(handler, http.MethodPost, "/admin/api/events", `{"path":"/team-day","revision":"manifest-1"}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create status = %d: %s", response.Code, response.Body.String())
+	}
+	var created adminEventResponse
+	decodeTestJSON(t, response, &created)
+	if created.Path != "/team-day" || created.ManifestRevision != "manifest-2" || created.Config == nil {
+		t.Fatalf("created event = %#v", created)
+	}
+
+	response = serveAdminAPI(handler, http.MethodDelete, "/admin/api/events/team-day", `{"confirmation":"/wrong","revision":"manifest-2"}`)
+	if response.Code != http.StatusUnprocessableEntity || content.files["/team-day"] == "" {
+		t.Fatalf("bad confirmation response = %d %s", response.Code, response.Body.String())
+	}
+	response = serveAdminAPI(handler, http.MethodDelete, "/admin/api/events/team-day", `{"confirmation":"/team-day","revision":"manifest-1"}`)
+	if response.Code != http.StatusConflict || content.files["/team-day"] == "" {
+		t.Fatalf("stale removal response = %d %s", response.Code, response.Body.String())
+	}
+	response = serveAdminAPI(handler, http.MethodDelete, "/admin/api/events/team-day", `{"confirmation":"/team-day","revision":"manifest-2"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete status = %d: %s", response.Code, response.Body.String())
+	}
+	if _, exists := content.files["/team-day"]; exists {
+		t.Fatal("deleted event remained in content store")
 	}
 }
 
@@ -286,11 +322,12 @@ func truncatedImageWithValidConfig(t *testing.T, content []byte) []byte {
 }
 
 type stubAdminContent struct {
-	files     map[string]string
-	revisions map[string]string
-	listErr   error
-	logoPath  string
-	logoData  []byte
+	files            map[string]string
+	revisions        map[string]string
+	listErr          error
+	logoPath         string
+	logoData         []byte
+	manifestRevision string
 }
 
 func (content *stubAdminContent) UploadLogo(eventPath, extension string, data []byte) (string, error) {
@@ -304,9 +341,51 @@ func (content *stubAdminContent) UploadLogo(eventPath, extension string, data []
 
 func newStubAdminContent() *stubAdminContent {
 	return &stubAdminContent{
-		files:     map[string]string{"/alpha": "conference: alpha", "/beta": "conference: beta"},
-		revisions: map[string]string{"/alpha": "rev-alpha", "/beta": "rev-beta"},
+		files:            map[string]string{"/alpha": "conference: alpha", "/beta": "conference: beta"},
+		revisions:        map[string]string{"/alpha": "rev-alpha", "/beta": "rev-beta"},
+		manifestRevision: "manifest-1",
 	}
+}
+
+func (content *stubAdminContent) ManifestRevision() (string, error) {
+	return content.manifestRevision, nil
+}
+
+func (content *stubAdminContent) CreateEvent(eventPath, expectedRevision string) (string, error) {
+	if expectedRevision != content.manifestRevision {
+		return "", admincontent.ErrManifestStale
+	}
+	if _, exists := content.files[eventPath]; exists {
+		return "", admincontent.ErrEventExists
+	}
+	config := menu.Config{
+		Conference: menu.Conference{Languages: []string{"en"}, Name: menu.Localized{EN: "New event"}, Location: menu.Localized{EN: "Hall"}},
+		Days:       []menu.Day{{Date: "2030-01-01", Services: []menu.Service{{ID: "lunch", Title: menu.Localized{EN: "Lunch"}, Subtitle: menu.Localized{EN: "Food"}, From: "12:00", Until: "13:00"}}}},
+	}
+	encoded, err := yaml.Marshal(config)
+	if err != nil {
+		return "", err
+	}
+	content.files[eventPath] = string(encoded)
+	content.revisions[eventPath] = "rev-created"
+	content.manifestRevision = "manifest-2"
+	return content.manifestRevision, nil
+}
+
+func (content *stubAdminContent) DeleteEvent(eventPath, confirmation, expectedRevision string) (string, error) {
+	if confirmation != eventPath {
+		return "", admincontent.ErrInvalidEvent
+	}
+	if expectedRevision != content.manifestRevision {
+		return "", admincontent.ErrManifestStale
+	}
+	if _, exists := content.files[eventPath]; !exists {
+		return "", admincontent.ErrEventNotFound
+	}
+	delete(content.files, eventPath)
+	delete(content.revisions, eventPath)
+	content.manifestRevision = "manifest-3"
+	return content.manifestRevision, nil
 }
 
 func (content *stubAdminContent) Events() ([]string, error) {

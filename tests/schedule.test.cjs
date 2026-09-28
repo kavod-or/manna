@@ -66,7 +66,7 @@ test('conference clock selects days and meals, while preserving manual selection
 
 test('only reload clears fragments; navigation and topic clicks preserve them', () => {
   for (const navigationType of ['navigate', 'reload', 'back_forward']) {
-    const location = {pathname: '/example-conference', search: '?lang=en', hash: '#trucks-0'};
+    const location = {pathname: '/event', search: '?lang=en', hash: '#trucks-0'};
     const state = {example: true};
     let scrolled = 0;
     let hashchange;
@@ -74,7 +74,7 @@ test('only reload clears fragments; navigation and topic clicks preserve them', 
     const target = {closest: () => panel, scrollIntoView: () => {scrolled++;}};
     const history = {state, replaceState(nextState, title, url) {
       assert.equal(nextState, state);
-      assert.equal(url, '/example-conference?lang=en');
+      assert.equal(url, '/event?lang=en');
       location.hash = '';
     }};
     const document = {

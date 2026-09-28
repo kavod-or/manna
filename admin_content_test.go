@@ -140,6 +140,182 @@ func TestEventAdminStoresUploadedLogoBesideMenu(t *testing.T) {
 	}
 }
 
+func TestEventAdminCreatesBlankEventAndUpdatesManifest(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRevision, err := admin.CreateEvent("/team-day", revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(contentDir, eventManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRevision != contentRevision(manifest) || !strings.Contains(string(manifest), "path: /team-day") || !strings.Contains(string(manifest), "menu: team-day.yaml") {
+		t.Fatalf("created manifest = %s", manifest)
+	}
+	created, err := os.ReadFile(filepath.Join(contentDir, "team-day.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.ValidateMenu(created); err != nil {
+		t.Fatalf("blank event menu is invalid: %v", err)
+	}
+	if _, _, err := admin.ReadEvent("/team-day"); err != nil {
+		t.Fatalf("created event was not immediately available: %v", err)
+	}
+}
+
+func TestEventAdminCreateRejectsUnsafePathsCollisionsAndStaleManifest(t *testing.T) {
+	for _, eventPath := range []string{"team-day", "/../team-day", "/admin", "/Team-Day", "/team--day"} {
+		t.Run(eventPath, func(t *testing.T) {
+			admin, _ := newTestEventAdmin(t)
+			revision, err := admin.ManifestRevision()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := admin.CreateEvent(eventPath, revision); !errors.Is(err, admincontent.ErrInvalidEvent) {
+				t.Fatalf("CreateEvent(%q) error = %v", eventPath, err)
+			}
+		})
+	}
+	admin, contentDir := newTestEventAdmin(t)
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.CreateEvent("/alpha", revision); !errors.Is(err, admincontent.ErrEventExists) {
+		t.Fatalf("duplicate event error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contentDir, "orphan.yaml"), []byte(blankEventMenu), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.CreateEvent("/orphan", revision); !errors.Is(err, admincontent.ErrEventExists) {
+		t.Fatalf("orphan collision error = %v", err)
+	}
+	if _, err := admin.CreateEvent("/new-event", "sha256:stale"); !errors.Is(err, admincontent.ErrManifestStale) {
+		t.Fatalf("stale manifest error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "new-event.yaml")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stale create wrote a menu: %v", err)
+	}
+}
+
+func TestEventAdminDeleteRequiresExactConfirmationAndDeletesOwnedFiles(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	logoPath := "alpha-logo-0123456789abcdef.png"
+	unpublishedLogoPath := "alpha-logo-fedcba9876543210.jpg"
+	unrelatedPath := "other-logo-0123456789abcdef.png"
+	alpha := strings.Replace(testMenu("Alpha"), "conference:\n", "conference:\n  logo: "+logoPath+"\n", 1)
+	if err := os.WriteFile(filepath.Join(contentDir, "alpha.yaml"), []byte(alpha), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{logoPath, unpublishedLogoPath, unrelatedPath} {
+		if err := os.WriteFile(filepath.Join(contentDir, name), []byte("logo"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DeleteEvent("/alpha", "alpha", revision); !errors.Is(err, admincontent.ErrInvalidEvent) {
+		t.Fatalf("confirmation error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "alpha.yaml")); err != nil {
+		t.Fatal("failed confirmation changed event files")
+	}
+	newRevision, err := admin.DeleteEvent("/alpha", "/alpha", revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(contentDir, eventManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRevision != contentRevision(manifest) || strings.Contains(string(manifest), "/alpha") {
+		t.Fatalf("removed event remains in manifest: %s", manifest)
+	}
+	for _, name := range []string{"alpha.yaml", logoPath, unpublishedLogoPath} {
+		if _, err := os.Stat(filepath.Join(contentDir, name)); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("removed file %q still exists: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, unrelatedPath)); err != nil {
+		t.Fatal("unrelated logo was deleted")
+	}
+	if _, _, err := admin.ReadEvent("/alpha"); !errors.Is(err, admincontent.ErrEventNotFound) {
+		t.Fatalf("removed route read error = %v", err)
+	}
+}
+
+func TestEventAdminDeletePreservesCustomBrandingAndRejectsStaleManifest(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	alpha := strings.Replace(testMenu("Alpha"), "conference:\n", "conference:\n  logo: shared-brand.png\n", 1)
+	if err := os.WriteFile(filepath.Join(contentDir, "alpha.yaml"), []byte(alpha), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contentDir, "shared-brand.png"), []byte("logo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DeleteEvent("/alpha", "/alpha", "sha256:stale"); !errors.Is(err, admincontent.ErrManifestStale) {
+		t.Fatalf("stale delete error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "alpha.yaml")); err != nil {
+		t.Fatal("stale delete removed the menu")
+	}
+	if _, err := admin.DeleteEvent("/alpha", "/alpha", revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "shared-brand.png")); err != nil {
+		t.Fatal("custom branding was deleted")
+	}
+}
+
+func TestEventAdminDeleteRefusesSharedMenu(t *testing.T) {
+	contentDir := t.TempDir()
+	files := map[string]string{
+		"events.yaml": "events:\n  - path: /alpha\n    menu: shared.yaml\n  - path: /beta\n    menu: shared.yaml\n",
+		"shared.yaml": testMenu("Shared"),
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(contentDir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := os.OpenRoot(contentDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	registry, err := newEventRegistryWithInterval(&rootedFS{root: root}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := newEventAdmin(registry)
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DeleteEvent("/alpha", "/alpha", revision); !errors.Is(err, admincontent.ErrInvalidEvent) {
+		t.Fatalf("shared menu delete error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "shared.yaml")); err != nil {
+		t.Fatal("shared menu was deleted")
+	}
+	manifest, err := os.ReadFile(filepath.Join(contentDir, eventManifestFile))
+	if err != nil || !strings.Contains(string(manifest), "/alpha") {
+		t.Fatalf("shared event was removed from manifest: %v\n%s", err, manifest)
+	}
+}
+
 func TestEventAdminInvalidPublishLeavesCurrentFile(t *testing.T) {
 	admin, contentDir := newTestEventAdmin(t)
 	before, revision, err := admin.ReadEvent("/alpha")
@@ -222,6 +398,26 @@ func TestRootedContentWriteCheckCleansUpProbe(t *testing.T) {
 	}
 	if len(entries) != 3 {
 		t.Fatalf("write probe remained in content directory: %#v", entries)
+	}
+}
+
+func TestRootedContentWriteCheckRequiresManifest(t *testing.T) {
+	contentDir := t.TempDir()
+	rootHandle, err := os.OpenRoot(contentDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rootHandle.Close() })
+	root := &rootedFS{root: rootHandle}
+	if err := root.verifyWritable(); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing manifest error = %v", err)
+	}
+	entries, err := os.ReadDir(contentDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("write probe remained after failed check: %#v", entries)
 	}
 }
 

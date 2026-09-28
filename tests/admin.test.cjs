@@ -44,17 +44,18 @@ function config() {
   };
 }
 
-function adminContext(replies) {
+function adminContext(replies, promptReplies = []) {
   const elements = {
     'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
     'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
-    'reload-button': element(), 'public-menu-link': element(),
+    'reload-button': element(), 'add-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
     'preview-panel': element({hidden: true}), 'menu-preview': element(),
     'preview-language': element(), 'preview-day': element(),
   };
   const requests = [];
   const windowListeners = {};
   const confirmations = [];
+  const prompts = [];
   const hook = {};
   class TestFormData {
     constructor() { this.entries = []; }
@@ -72,12 +73,15 @@ function adminContext(replies) {
     __mannaAdminTest: hook,
     FormData: TestFormData,
     FileReader: TestFileReader,
+    setTimeout,
+    clearTimeout,
     document: {
       getElementById(id) { return elements[id]; },
       createElement() { return element(); },
     },
     window: {
       confirm(message) { confirmations.push(message); return true; },
+      prompt(message) { prompts.push(message); return promptReplies.shift() ?? null; },
       addEventListener(type, callback) { windowListeners[type] = callback; },
     },
     async fetch(url, options = {}) {
@@ -88,8 +92,52 @@ function adminContext(replies) {
     },
   };
   vm.runInNewContext(fs.readFileSync('web/static/admin.js', 'utf8'), context);
-  return {elements, requests, replies, hook, window: context.window, windowListeners, confirmations};
+  return {elements, requests, replies, hook, window: context.window, windowListeners, confirmations, prompts};
 }
+
+test('event management creates blank events and permanently removes confirmed events', async () => {
+  const created = config();
+  created.conference.name.en = 'New event';
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}], revision: 'manifest-1', can_manage: true}),
+    response(200, {path: '/alpha', config: config(), yaml: 'alpha', revision: 'rev-alpha'}),
+  ], ['/team-day', '/team-day']);
+  await setup.hook.ready;
+
+  setup.replies.push(
+    response(201, {path: '/team-day', config: created, yaml: 'new menu', revision: 'rev-new', manifest_revision: 'manifest-2'}),
+    response(200, {events: [{path: '/alpha'}, {path: '/team-day'}], revision: 'manifest-2', can_manage: true}),
+    response(200, {path: '/team-day', config: created, yaml: 'new menu', revision: 'rev-new'}),
+  );
+  await setup.hook.addEvent();
+  let request = setup.requests.find((entry) => entry.url === '/admin/api/events' && entry.options.method === 'POST');
+  assert.deepEqual(JSON.parse(request.options.body), {path: '/team-day', revision: 'manifest-1'});
+  assert.equal(request.options.headers['X-Manna-Admin'], '1');
+  assert.equal(setup.hook.state.path, '/team-day');
+
+  setup.replies.push(
+    response(200, {deleted: '/team-day', revision: 'manifest-3'}),
+    response(200, {events: [{path: '/alpha'}], revision: 'manifest-3', can_manage: true}),
+    response(200, {path: '/alpha', config: config(), yaml: 'alpha', revision: 'rev-alpha'}),
+  );
+  await setup.hook.deleteEvent();
+  request = setup.requests.find((entry) => entry.url === '/admin/api/events/team-day' && entry.options.method === 'DELETE');
+  assert.deepEqual(JSON.parse(request.options.body), {revision: 'manifest-2', confirmation: '/team-day'});
+  assert.equal(setup.hook.state.path, '/alpha');
+  assert.match(setup.elements['editor-status'].textContent, /permanently removed/i);
+});
+
+test('event removal requires the exact path before sending a request', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}], revision: 'manifest-1', can_manage: true}),
+    response(200, {path: '/alpha', config: config(), yaml: 'alpha', revision: 'rev-alpha'}),
+  ], ['/wrong']);
+  await setup.hook.ready;
+  const requestsBefore = setup.requests.length;
+  await setup.hook.deleteEvent();
+  assert.equal(setup.requests.length, requestsBefore);
+  assert.match(setup.elements['editor-status'].textContent, /must exactly match/);
+});
 
 test('visual editor loads structured menu and publishes form changes', async () => {
   const published = config();
@@ -129,6 +177,30 @@ test('visual editor loads structured menu and publishes form changes', async () 
   assert.equal(payload.config.conference.name.en, 'Updated event');
   assert.equal(payload.revision, 'rev-1');
   assert.equal(setup.hook.isDirty(), false);
+});
+
+test('draft preview updates its existing document without reloading the iframe', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: config(), yaml: 'menu', revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+
+  const preview = setup.elements['menu-preview'];
+  const initialSource = preview.srcdoc;
+  preview.contentDocument = {
+    documentElement: {lang: 'de', dir: 'ltr'},
+    body: {innerHTML: ''},
+    scrollingElement: {scrollTop: 120},
+  };
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'name', 'en']))}, value: 'Smooth update'});
+  assert.equal(preview.contentDocument.body.innerHTML, '');
+
+  setup.hook.state.previewLanguage = 'en';
+  setup.hook.flushPreview();
+  assert.equal(preview.srcdoc, initialSource);
+  assert.match(preview.contentDocument.body.innerHTML, /Smooth update/);
+  assert.equal(preview.contentDocument.scrollingElement.scrollTop, 120);
 });
 
 test('entries and items can be added and removed without YAML editing', async () => {

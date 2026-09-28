@@ -40,13 +40,16 @@ func TestAdminEditorPageAndAssets(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("admin page status = %d: %s", response.Code, response.Body.String())
 	}
-	for _, expected := range []string{"Menu editor", `id="event-select"`, `id="menu-form"`, `id="editor-tabs"`, `id="menu-preview"`, `id="preview-language"`, `id="preview-day"`, `id="validate-button"`, `id="publish-button"`, "/admin/static/admin.css", "/admin/static/admin.js"} {
+	for _, expected := range []string{"Menu editor", `id="event-select"`, `id="add-event-button"`, `id="delete-event-button"`, `id="menu-form"`, `id="editor-tabs"`, `id="menu-preview"`, `id="preview-language"`, `id="preview-day"`, `id="validate-button"`, `id="publish-button"`, "/admin/static/admin.css", "/admin/static/admin.js"} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("admin page missing %q", expected)
 		}
 	}
 	if strings.Contains(response.Body.String(), "conference: alpha") {
 		t.Fatal("admin page embedded menu YAML before the authenticated API request")
+	}
+	if !strings.Contains(response.Body.String(), `id="menu-preview" title="Live preview of the event menu" sandbox="allow-same-origin"`) {
+		t.Fatal("admin preview must allow same-origin DOM updates without allowing scripts")
 	}
 
 	for _, asset := range []string{"admin.css", "admin.js"} {

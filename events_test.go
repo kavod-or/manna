@@ -1,8 +1,8 @@
 package main
 
 import (
+	"errors"
 	"io/fs"
-	"manna/internal/menu"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,61 +10,26 @@ import (
 )
 
 func TestEmbeddedEvents(t *testing.T) {
-	content := fstest.MapFS{}
-	for _, name := range []string{"events.example.yaml", "menu.yaml", "community-day.yaml"} {
-		data, err := fs.ReadFile(assets, "content/"+name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		content[name] = &fstest.MapFile{Data: data}
+	data, err := fs.ReadFile(assets, "content/events.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
+	content := fstest.MapFS{"events.yaml": {Data: data}}
 	events, err := loadEventFS(content)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("event count %d", len(events))
-	}
-	first, err := events["/example-conference"]()
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := events["/community-day"]()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Conference.Name.EN == second.Conference.Name.EN {
-		t.Fatal("events share menu")
-	}
-	if first.Conference.EffectiveCurrency() != menu.Dollar {
-		t.Fatalf("example conference currency = %q, want dollar", first.Conference.EffectiveCurrency())
-	}
-	if second.Conference.EffectiveCurrency() != menu.Schekel {
-		t.Fatalf("community day currency = %q, want schekel", second.Conference.EffectiveCurrency())
+	if len(events) != 0 {
+		t.Fatalf("fresh checkout contains demo events: %#v", events)
 	}
 }
 
-func TestEventManifestTemplateFallbackAndRuntimeOverride(t *testing.T) {
+func TestEventManifestIsRequired(t *testing.T) {
 	content := fstest.MapFS{
-		"events.example.yaml": {Data: []byte("events:\n  - path: /template\n    menu: template.yaml\n")},
-		"template.yaml":       {Data: []byte(testMenu("Template"))},
-		"runtime.yaml":        {Data: []byte(testMenu("Runtime"))},
+		"runtime.yaml": {Data: []byte(testMenu("Runtime"))},
 	}
-	events, err := loadEventFS(content)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if events["/template"] == nil {
-		t.Fatal("template manifest was not used when events.yaml was absent")
-	}
-
-	content["events.yaml"] = &fstest.MapFile{Data: []byte("events:\n  - path: /runtime\n    menu: runtime.yaml\n")}
-	events, err = loadEventFS(content)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if events["/runtime"] == nil || events["/template"] != nil {
-		t.Fatalf("runtime manifest did not override template: %#v", events)
+	if _, err := loadEventFS(content); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing manifest error = %v", err)
 	}
 }
 
@@ -86,7 +51,6 @@ func TestRejectInvalidMenuPaths(t *testing.T) {
 		"menu.yml",
 		"menu.json",
 		"events.yaml",
-		"events.example.yaml",
 	} {
 		manifest := "events:\n  - path: /test\n    menu: '" + menuPath + "'\n"
 		_, err := loadEventFS(fstest.MapFS{"events.yaml": {Data: []byte(manifest)}})

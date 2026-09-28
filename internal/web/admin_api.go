@@ -36,14 +36,25 @@ type adminYAMLRequest struct {
 }
 
 type adminEventResponse struct {
-	Path     string       `json:"path"`
-	YAML     string       `json:"yaml"`
-	Config   *menu.Config `json:"config,omitempty"`
-	Revision string       `json:"revision"`
+	Path             string       `json:"path"`
+	YAML             string       `json:"yaml"`
+	Config           *menu.Config `json:"config,omitempty"`
+	Revision         string       `json:"revision"`
+	ManifestRevision string       `json:"manifest_revision,omitempty"`
 }
 
 type adminEventSummary struct {
 	Path string `json:"path"`
+}
+
+type adminCreateEventRequest struct {
+	Path     string `json:"path"`
+	Revision string `json:"revision"`
+}
+
+type adminDeleteEventRequest struct {
+	Revision     string `json:"revision"`
+	Confirmation string `json:"confirmation"`
 }
 
 func (s *server) adminHandler() http.Handler {
@@ -55,7 +66,9 @@ func (s *server) adminHandler() http.Handler {
 	mux.HandleFunc("GET /admin/", s.adminPage)
 	mux.HandleFunc("GET /admin/static/{asset}", s.adminAsset)
 	mux.HandleFunc("GET /admin/api/events", s.adminEvents)
+	mux.HandleFunc("POST /admin/api/events", s.adminCreateEvent)
 	mux.HandleFunc("GET /admin/api/events/{slug}", s.adminReadEvent)
+	mux.HandleFunc("DELETE /admin/api/events/{slug}", s.adminDeleteEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/validate", s.adminValidateEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/logo", s.adminUploadLogo)
 	mux.HandleFunc("PUT /admin/api/events/{slug}", s.adminPublishEvent)
@@ -127,9 +140,80 @@ func (s *server) adminEvents(writer http.ResponseWriter, _ *http.Request) {
 	for _, eventPath := range paths {
 		events = append(events, adminEventSummary{Path: eventPath})
 	}
+	manager, manageable := s.admin.(admincontent.EventContent)
+	var revision string
+	if manageable {
+		revision, err = manager.ManifestRevision()
+		if err != nil {
+			s.adminInternalError(writer, "read event manifest revision", err)
+			return
+		}
+	}
 	writeAdminJSON(writer, http.StatusOK, struct {
-		Events []adminEventSummary `json:"events"`
-	}{Events: events})
+		Events    []adminEventSummary `json:"events"`
+		Revision  string              `json:"revision,omitempty"`
+		CanManage bool                `json:"can_manage"`
+	}{Events: events, Revision: revision, CanManage: manageable})
+}
+
+func (s *server) adminCreateEvent(writer http.ResponseWriter, request *http.Request) {
+	manager, ok := s.admin.(admincontent.EventContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "event management is not available for this content store")
+		return
+	}
+	var payload adminCreateEventRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Path == "" || payload.Revision == "" {
+		writeAdminError(writer, http.StatusBadRequest, "path and revision are required")
+		return
+	}
+	manifestRevision, err := manager.CreateEvent(payload.Path, payload.Revision)
+	if err != nil {
+		s.adminContentError(writer, "create event", err)
+		return
+	}
+	content, revision, err := s.admin.ReadEvent(payload.Path)
+	if err != nil {
+		s.adminContentError(writer, "read created event", err)
+		return
+	}
+	config, err := decodeAdminConfig(content)
+	if err != nil {
+		s.adminContentError(writer, "decode created event", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusCreated, adminEventResponse{
+		Path: payload.Path, YAML: string(content), Config: &config, Revision: revision, ManifestRevision: manifestRevision,
+	})
+}
+
+func (s *server) adminDeleteEvent(writer http.ResponseWriter, request *http.Request) {
+	manager, ok := s.admin.(admincontent.EventContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "event management is not available for this content store")
+		return
+	}
+	var payload adminDeleteEventRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Revision == "" || payload.Confirmation == "" {
+		writeAdminError(writer, http.StatusBadRequest, "revision and confirmation are required")
+		return
+	}
+	eventPath := "/" + request.PathValue("slug")
+	revision, err := manager.DeleteEvent(eventPath, payload.Confirmation, payload.Revision)
+	if err != nil {
+		s.adminContentError(writer, "delete event", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusOK, struct {
+		Deleted  string `json:"deleted"`
+		Revision string `json:"revision"`
+	}{Deleted: eventPath, Revision: revision})
 }
 
 func (s *server) adminReadEvent(writer http.ResponseWriter, request *http.Request) {
@@ -335,19 +419,24 @@ func yamlSequenceIdentity(node *yaml.Node) string {
 }
 
 func decodeAdminYAMLRequest(writer http.ResponseWriter, request *http.Request) (adminYAMLRequest, bool) {
+	var payload adminYAMLRequest
+	ok := decodeAdminJSON(writer, request, &payload)
+	return payload, ok
+}
+
+func decodeAdminJSON(writer http.ResponseWriter, request *http.Request, payload any) bool {
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeAdminError(writer, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
-		return adminYAMLRequest{}, false
+		return false
 	}
 
 	request.Body = http.MaxBytesReader(writer, request.Body, maxAdminRequestSize)
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
-	var payload adminYAMLRequest
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decoder.Decode(payload); err != nil {
 		writeAdminDecodeError(writer, err)
-		return adminYAMLRequest{}, false
+		return false
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		if err == nil {
@@ -355,9 +444,9 @@ func decodeAdminYAMLRequest(writer http.ResponseWriter, request *http.Request) (
 		} else {
 			writeAdminDecodeError(writer, err)
 		}
-		return adminYAMLRequest{}, false
+		return false
 	}
-	return payload, true
+	return true
 }
 
 func writeAdminDecodeError(writer http.ResponseWriter, err error) {
@@ -375,6 +464,12 @@ func (s *server) adminContentError(writer http.ResponseWriter, operation string,
 		writeAdminError(writer, http.StatusNotFound, "event not found")
 	case errors.Is(err, admincontent.ErrRevisionStale):
 		writeAdminError(writer, http.StatusConflict, "the event changed after it was loaded")
+	case errors.Is(err, admincontent.ErrManifestStale):
+		writeAdminError(writer, http.StatusConflict, "the event list changed after it was loaded")
+	case errors.Is(err, admincontent.ErrEventExists):
+		writeAdminError(writer, http.StatusConflict, "the event path or generated menu file already exists")
+	case errors.Is(err, admincontent.ErrInvalidEvent):
+		writeAdminError(writer, http.StatusUnprocessableEntity, strings.TrimPrefix(err.Error(), admincontent.ErrInvalidEvent.Error()+": "))
 	case errors.Is(err, admincontent.ErrInvalidMenu):
 		writeAdminError(writer, http.StatusUnprocessableEntity, validationMessage(err))
 	case errors.Is(err, admincontent.ErrInvalidLogo):
