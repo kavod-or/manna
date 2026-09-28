@@ -239,39 +239,20 @@
   });
 })();
 
-// A deliberate logo hold reveals the event's configured easter egg.
+// Five clicks on the language switch reveal the event's configured easter egg.
 (() => {
   const mode = document.body.dataset.easterEggMode;
   if (mode === 'none') return;
-  const logo = document.querySelector('.brand');
-  if (!logo) return;
+  const languageSwitch = document.querySelector('.language-switch');
+  if (!languageSwitch?.addEventListener) return;
 
   const toggle = mode === 'mazel_tov' ? mazelTovToggle() : girlyVibesToggle();
-  let timer;
-  let held = false;
-  let origin;
-  const cancel = () => { clearTimeout(timer); timer = null; };
-
-  logo.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    cancel(); held = false;
-    origin = {x: event.clientX, y: event.clientY};
-    timer = setTimeout(() => { held = true; toggle(); }, 3000);
+  let languageClicks = 0;
+  languageSwitch.addEventListener('click', () => {
+    if (++languageClicks < 5) return;
+    languageClicks = 0;
+    toggle();
   });
-  logo.addEventListener('pointermove', (event) => {
-    if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 12) cancel();
-  });
-  ['pointerup', 'pointercancel', 'pointerleave', 'blur', 'dragstart'].forEach((type) => logo.addEventListener(type, cancel));
-  logo.addEventListener('keydown', (event) => {
-    if (event.key !== ' ' || event.repeat) return;
-    event.preventDefault(); cancel(); held = false;
-    timer = setTimeout(() => { held = true; toggle(); }, 3000);
-  });
-  logo.addEventListener('keyup', cancel);
-  logo.addEventListener('click', (event) => {
-    if (held) { event.preventDefault(); held = false; }
-  });
-  logo.addEventListener('contextmenu', (event) => { if (timer || held) event.preventDefault(); });
 
   function girlyVibesToggle() {
     let theme;

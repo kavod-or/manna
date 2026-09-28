@@ -24,6 +24,7 @@ type eventAdmin struct {
 }
 
 var _ admincontent.Content = (*eventAdmin)(nil)
+var _ admincontent.LogoContent = (*eventAdmin)(nil)
 
 func newEventAdmin(registry *eventRegistry) *eventAdmin {
 	return &eventAdmin{registry: registry}
@@ -59,6 +60,29 @@ func (admin *eventAdmin) ValidateMenu(content []byte) error {
 		return fmt.Errorf("%w: %v", admincontent.ErrInvalidMenu, err)
 	}
 	return nil
+}
+
+func (admin *eventAdmin) UploadLogo(eventPath, extension string, content []byte) (string, error) {
+	if extension != ".png" && extension != ".jpg" {
+		return "", admincontent.ErrInvalidLogo
+	}
+	route, err := admin.route(eventPath)
+	if err != nil {
+		return "", err
+	}
+	writer, ok := admin.registry.content.(interface {
+		writeAssetAtomic(string, []byte) error
+	})
+	if !ok {
+		return "", admincontent.ErrContentReadOnly
+	}
+	base := strings.TrimSuffix(path.Base(route.menuPath), path.Ext(route.menuPath))
+	digest := sha256.Sum256(content)
+	logoPath := path.Join(path.Dir(route.menuPath), base+"-logo-"+hex.EncodeToString(digest[:8])+extension)
+	if err := writer.writeAssetAtomic(logoPath, content); err != nil {
+		return "", fmt.Errorf("write admin logo: %w", err)
+	}
+	return logoPath, nil
 }
 
 func (admin *eventAdmin) PublishEvent(eventPath, expectedRevision string, content []byte) (string, error) {
@@ -173,6 +197,41 @@ func (root *rootedFS) writeFileAtomic(name, expectedRevision string, content []b
 	if contentRevision(current) != expectedRevision {
 		return admincontent.ErrRevisionStale
 	}
+	if err := root.root.Rename(temporaryName, name); err != nil {
+		return err
+	}
+	keepTemporary = false
+	return nil
+}
+
+func (root *rootedFS) writeAssetAtomic(name string, content []byte) error {
+	if !fs.ValidPath(name) || strings.Contains(name, `\`) {
+		return fmt.Errorf("invalid content path %q", name)
+	}
+	temporaryName, file, err := root.createTemporaryFile(name, 0o644)
+	if err != nil {
+		return err
+	}
+	keepTemporary := true
+	fileOpen := true
+	defer func() {
+		if fileOpen {
+			_ = file.Close()
+		}
+		if keepTemporary {
+			_ = root.root.Remove(temporaryName)
+		}
+	}()
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	fileOpen = false
 	if err := root.root.Rename(temporaryName, name); err != nil {
 		return err
 	}

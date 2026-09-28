@@ -7,18 +7,15 @@ function element(initial = {}) {
   const listeners = {};
   const classes = new Set();
   return Object.assign({
-    value: '', textContent: '', className: '', disabled: false, href: '',
-    selectionStart: 0, selectionEnd: 0, children: [], attributes: {},
+    value: '', textContent: '', innerHTML: '', className: '', disabled: false,
+    hidden: false, href: '', children: [], attributes: {}, dataset: {},
     get options() { return this.children; },
     addEventListener(type, callback) { listeners[type] = callback; },
     dispatch(type, event = {}) { return listeners[type]?.(event); },
     replaceChildren() { this.children = []; },
     append(child) { this.children.push(child); },
     setAttribute(name, value) { this.attributes[name] = value; },
-    setRangeText(text, start, end) {
-      this.value = this.value.slice(0, start) + text + this.value.slice(end);
-      this.selectionStart = this.selectionEnd = start + text.length;
-    },
+    querySelectorAll() { return []; },
     classList: {
       add(name) { classes.add(name); },
       remove(name) { classes.delete(name); },
@@ -31,23 +28,50 @@ function response(status, body) {
   return {ok: status >= 200 && status < 300, status, async json() { return body; }};
 }
 
+function config() {
+  return {
+    conference: {
+      currency: 'euro', hide_prices: false, payment: {}, languages: ['de', 'en'],
+      serious_mode: false, easter_egg_mode: '', timezone: 'Europe/Berlin', logo: '',
+      name: {de: 'Test', en: 'Test'}, location: {de: 'Berlin', en: 'Berlin'},
+    },
+    tags: {}, regulatory: {},
+    permanent: {coffee: [], drinks: [], snacks: []},
+    days: [{date: '2026-09-26', food_trucks: [], services: [{
+      id: 'lunch', sold_out: false, title: {de: 'Mittagessen', en: 'Lunch'},
+      subtitle: {de: '', en: ''}, from: '12:00', until: '13:00', items: [],
+    }]}],
+  };
+}
+
 function adminContext(replies) {
   const elements = {
-    'event-select': element(),
-    'yaml-editor': element(),
-    'editor-status': element(),
-    'editor-position': element(),
-    'validate-button': element(),
-    'publish-button': element(),
-    'reload-button': element(),
-    'public-menu-link': element(),
+    'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
+    'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
+    'reload-button': element(), 'public-menu-link': element(),
+    'preview-panel': element({hidden: true}), 'menu-preview': element(),
+    'preview-language': element(), 'preview-day': element(),
   };
   const requests = [];
   const windowListeners = {};
   const confirmations = [];
   const hook = {};
+  class TestFormData {
+    constructor() { this.entries = []; }
+    append(name, value) { this.entries.push([name, value]); }
+  }
+  class TestFileReader {
+    constructor() { this.listeners = {}; this.result = ''; }
+    addEventListener(type, callback) { this.listeners[type] = callback; }
+    readAsDataURL() {
+      this.result = 'data:image/png;base64,dGVzdA==';
+      this.listeners.load?.();
+    }
+  }
   const context = {
     __mannaAdminTest: hook,
+    FormData: TestFormData,
+    FileReader: TestFileReader,
     document: {
       getElementById(id) { return elements[id]; },
       createElement() { return element(); },
@@ -64,91 +88,293 @@ function adminContext(replies) {
     },
   };
   vm.runInNewContext(fs.readFileSync('web/static/admin.js', 'utf8'), context);
-  return {elements, requests, replies, hook, windowListeners, confirmations};
+  return {elements, requests, replies, hook, window: context.window, windowListeners, confirmations};
 }
 
-test('admin editor loads existing YAML and publishes explicit changes', async () => {
+test('visual editor loads structured menu and publishes form changes', async () => {
   const setup = adminContext([
     response(200, {events: [{path: '/alpha'}, {path: '/beta'}]}),
-    response(200, {path: '/alpha', yaml: 'conference: alpha\n', revision: 'rev-1'}),
+    response(200, {path: '/alpha', config: config(), revision: 'rev-1'}),
   ]);
   await setup.hook.ready;
 
   assert.equal(setup.elements['event-select'].options.length, 2);
   assert.equal(setup.elements['event-select'].value, '/alpha');
-  assert.equal(setup.elements['yaml-editor'].value, 'conference: alpha\n');
+  assert.match(setup.elements['menu-form'].innerHTML, /Event details/);
+  assert.match(setup.elements['menu-form'].innerHTML, /Girly vibes \(default\)/);
+  assert.match(setup.elements['menu-form'].innerHTML, /Mazel Tov/);
+  assert.doesNotMatch(setup.elements['menu-form'].innerHTML, /yaml-editor/);
   assert.equal(setup.elements['public-menu-link'].href, '/alpha');
+  assert.equal(setup.elements['preview-panel'].hidden, false);
+  assert.match(setup.elements['menu-preview'].srcdoc, /focus-card/);
+  assert.match(setup.elements['menu-preview'].srcdoc, /Mittagessen/);
   assert.equal(setup.hook.isDirty(), false);
-  assert.equal(setup.elements['publish-button'].disabled, true);
 
-  setup.elements['yaml-editor'].value = 'conference: updated\n';
-  setup.elements['yaml-editor'].selectionStart = setup.elements['yaml-editor'].value.length;
-  setup.elements['yaml-editor'].dispatch('input');
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'name', 'en']))}, value: 'Updated event'});
+  assert.equal(setup.hook.state.config.conference.name.en, 'Updated event');
+  setup.hook.state.previewLanguage = 'en';
+  setup.hook.render();
+  assert.match(setup.elements['menu-preview'].srcdoc, /Updated event/);
   assert.equal(setup.hook.isDirty(), true);
   assert.equal(setup.elements['publish-button'].disabled, false);
-  assert.match(setup.elements['editor-status'].textContent, /unpublished/i);
 
   setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2'}));
   await setup.hook.publishMenu();
-  assert.equal(setup.requests.at(-1).url, '/admin/api/events/alpha');
-  assert.equal(setup.requests.at(-1).options.method, 'PUT');
-  assert.equal(setup.requests.at(-1).options.headers['X-Manna-Admin'], '1');
-  assert.deepEqual(JSON.parse(setup.requests.at(-1).options.body), {yaml: 'conference: updated\n', revision: 'rev-1'});
-  assert.equal(setup.hook.state.revision, 'rev-2');
+  const request = setup.requests.at(-1);
+  assert.equal(request.url, '/admin/api/events/alpha');
+  assert.equal(request.options.method, 'PUT');
+  const payload = JSON.parse(request.options.body);
+  assert.equal(payload.config.conference.name.en, 'Updated event');
+  assert.equal(payload.revision, 'rev-1');
   assert.equal(setup.hook.isDirty(), false);
-  assert.match(setup.elements['editor-status'].textContent, /published successfully/i);
-  assert.equal(setup.confirmations.length, 1);
 });
 
-test('validation and conflicts preserve unpublished YAML', async () => {
+test('entries and items can be added and removed without YAML editing', async () => {
   const setup = adminContext([
     response(200, {events: [{path: '/alpha'}]}),
-    response(200, {path: '/alpha', yaml: 'conference: alpha\n', revision: 'rev-1'}),
+    response(200, {path: '/alpha', config: config(), revision: 'rev-1'}),
   ]);
   await setup.hook.ready;
 
-  setup.elements['yaml-editor'].value = 'invalid: [\n';
-  setup.elements['yaml-editor'].dispatch('input');
-  setup.replies.push(response(422, {error: 'decode menu YAML: line 1: did not find expected node content'}));
-  await setup.hook.validateMenu();
-  assert.equal(setup.elements['yaml-editor'].value, 'invalid: [\n');
+  setup.hook.addAt(['permanent', 'coffee'], 'item');
+  assert.equal(setup.hook.state.config.permanent.coffee.length, 1);
+  setup.hook.addAt(['days'], 'day');
+  assert.equal(setup.hook.state.config.days.length, 2);
+  setup.hook.addAt(['tags'], 'tag');
+  assert.equal(Object.keys(setup.hook.state.config.tags.new_tag).length, 0);
+  setup.hook.removeAt(['permanent', 'coffee', 0]);
+  assert.equal(setup.hook.state.config.permanent.coffee.length, 0);
   assert.equal(setup.hook.isDirty(), true);
-  assert.match(setup.elements['editor-status'].textContent, /line 1/i);
+});
+
+test('validation and conflicts preserve unpublished form data', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: config(), revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['days', 0, 'date']))}, value: ''});
+
+  setup.replies.push(response(422, {error: 'days[0].date must use YYYY-MM-DD'}));
+  await setup.hook.validateMenu();
+  assert.equal(setup.hook.state.config.days[0].date, '');
+  assert.match(setup.elements['editor-status'].textContent, /YYYY-MM-DD/);
 
   setup.replies.push(response(409, {error: 'the event changed after it was loaded'}));
   await setup.hook.publishMenu();
-  assert.equal(setup.elements['yaml-editor'].value, 'invalid: [\n');
-  assert.equal(setup.hook.isDirty(), true);
-  assert.equal(setup.elements['reload-button'].disabled, false);
+  assert.equal(setup.hook.state.config.days[0].date, '');
   assert.match(setup.elements['editor-status'].textContent, /reload before publishing/i);
 
   const unload = {preventDefault() { this.prevented = true; }};
   setup.windowListeners.beforeunload(unload);
   assert.equal(unload.prevented, true);
-  assert.equal(unload.returnValue, '');
 });
 
-test('Tab inserts two spaces and the save shortcut validates only', async () => {
+test('YAML can be edited directly and synchronized back to forms', async () => {
+  const original = 'conference:\n  name: {de: Test, en: Test}\n';
+  const updated = 'conference:\n  name: {de: Test, en: Imported}\n';
+  const imported = config();
+  imported.conference.name.en = 'Imported';
   const setup = adminContext([
     response(200, {events: [{path: '/alpha'}]}),
-    response(200, {path: '/alpha', yaml: 'days:\n', revision: 'rev-1'}),
+    response(200, {path: '/alpha', config: config(), yaml: original, revision: 'rev-1'}),
   ]);
   await setup.hook.ready;
 
-  const editor = setup.elements['yaml-editor'];
-  editor.selectionStart = editor.selectionEnd = editor.value.length;
-  let prevented = false;
-  editor.dispatch('keydown', {key: 'Tab', preventDefault() { prevented = true; }});
-  assert.equal(prevented, true);
-  assert.equal(editor.value, 'days:\n  ');
-  assert.equal(setup.hook.isDirty(), true);
+  setup.replies.push(response(200, {valid: true, yaml: original, config: config()}));
+  await setup.hook.switchTab('yaml');
+  assert.match(setup.elements['menu-form'].innerHTML, /Direct YAML editor/);
+  assert.equal(setup.hook.isDirty(), false);
 
-  setup.replies.push(response(200, {valid: true}));
-  prevented = false;
-  editor.dispatch('keydown', {key: 's', ctrlKey: true, metaKey: false, preventDefault() { prevented = true; }});
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(prevented, true);
-  assert.equal(setup.requests.at(-1).options.method, 'POST');
-  assert.match(setup.requests.at(-1).url, /\/validate$/);
+  setup.hook.updateField({dataset: {yaml: 'true'}, value: updated});
   assert.equal(setup.hook.isDirty(), true);
+  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2'}));
+  await setup.hook.publishMenu();
+  const payload = JSON.parse(setup.requests.at(-1).options.body);
+  assert.equal(payload.yaml, updated);
+  assert.equal(payload.config, undefined);
+  assert.equal(setup.hook.isDirty(), false);
+
+  setup.replies.push(response(200, {valid: true, yaml: updated, config: imported}));
+  await setup.hook.switchTab('event');
+  assert.equal(setup.hook.state.config.conference.name.en, 'Imported');
+  assert.equal(setup.hook.isDirty(), false);
+});
+
+test('invalid stored YAML opens in the advanced editor and can be repaired', async () => {
+  const invalid = 'conference: [invalid';
+  const repaired = 'conference:\n  name: repaired\n';
+  const repairedConfig = config();
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', yaml: invalid, revision: 'rev-invalid'}),
+  ]);
+  await setup.hook.ready;
+
+  assert.equal(setup.hook.state.tab, 'yaml');
+  assert.equal(setup.hook.state.config, null);
+  assert.match(setup.elements['menu-form'].innerHTML, /conference: \[invalid/);
+  assert.equal(setup.elements['validate-button'].disabled, false);
+  assert.match(setup.elements['editor-status'].textContent, /invalid YAML/i);
+
+  setup.hook.updateField({dataset: {yaml: 'true'}, value: repaired});
+  assert.equal(setup.elements['publish-button'].disabled, false);
+  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-fixed', yaml: repaired, config: repairedConfig}));
+  await setup.hook.publishMenu();
+  const payload = JSON.parse(setup.requests.at(-1).options.body);
+  assert.equal(payload.yaml, repaired);
+  assert.equal(payload.revision, 'rev-invalid');
+  assert.equal(setup.hook.isDirty(), false);
+});
+
+test('publishing synchronizes YAML and form dirty baselines', async () => {
+  const originalYAML = 'name: A\n';
+  const publishedYAML = 'name: B\n';
+  const original = config();
+  const published = config();
+  published.conference.name.en = 'B';
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: original, yaml: originalYAML, revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+
+  setup.replies.push(response(200, {valid: true, yaml: originalYAML, config: original}));
+  await setup.hook.switchTab('yaml');
+  setup.replies.push(response(200, {valid: true, yaml: originalYAML, config: original}));
+  await setup.hook.switchTab('event');
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'name', 'en']))}, value: 'B'});
+  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2', yaml: publishedYAML, config: published}));
+  await setup.hook.publishMenu();
+  assert.equal(setup.hook.isDirty(), false);
+
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'name', 'en']))}, value: 'Test'});
+  setup.replies.push(response(200, {valid: true, yaml: originalYAML, config: original}));
+  await setup.hook.switchTab('yaml');
+  assert.equal(setup.hook.state.yaml, originalYAML);
+  assert.equal(setup.hook.isDirty(), true);
+  assert.equal(setup.elements['publish-button'].disabled, false);
+  const unload = {preventDefault() { this.prevented = true; }};
+  setup.windowListeners.beforeunload(unload);
+  assert.equal(unload.prevented, true);
+});
+
+test('structural edits preserve open item panels and scroll position', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: config(), yaml: 'menu', revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+
+  const oldDetail = {dataset: {detail: 'item-path'}, open: true};
+  const replacementDetail = {dataset: {detail: 'item-path'}, open: false};
+  const form = setup.elements['menu-form'];
+  form.querySelectorAll = (selector) => {
+    if (selector === 'details[open][data-detail]') return [oldDetail];
+    if (selector === 'details[data-detail]') return [replacementDetail];
+    return [];
+  };
+  let restoredScroll;
+  setup.window.scrollY = 480;
+  setup.window.scrollTo = ({top}) => { restoredScroll = top; };
+
+  setup.hook.render();
+  assert.equal(replacementDetail.open, true);
+  assert.equal(restoredScroll, 480);
+});
+
+test('schedule always labels each day with its number, weekday, and date', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: config(), yaml: 'menu', revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+  setup.hook.state.tab = 'schedule';
+  setup.hook.render();
+
+  assert.match(setup.elements['menu-form'].innerHTML, /Day 1/);
+  assert.match(setup.elements['menu-form'].innerHTML, /Samstag/);
+  assert.match(setup.elements['menu-form'].innerHTML, /2026/);
+  assert.match(setup.elements['menu-form'].innerHTML, /September/);
+  assert.doesNotMatch(setup.elements['menu-form'].innerHTML, /class="day-card"[^>]* open/);
+});
+
+test('live preview follows the selected language and day', async () => {
+  const menu = config();
+  menu.days.push({date: '2026-09-27', food_trucks: [], services: [{
+    id: 'dinner', sold_out: false, title: {de: 'Abendessen', en: 'Dinner'},
+    subtitle: {de: '', en: ''}, from: '18:00', until: '19:00', items: [],
+  }]});
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: menu, yaml: 'menu', revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+
+  setup.hook.state.previewLanguage = 'en';
+  setup.hook.state.previewDay = 1;
+  setup.hook.render();
+  const preview = setup.elements['menu-preview'].srcdoc;
+  assert.match(preview, /Dinner/);
+  assert.match(preview, /Drinks &amp; Snacks/);
+  assert.doesNotMatch(preview, /Abendessen/);
+});
+
+test('permanent items show every configured size price in their summary', async () => {
+  const menu = config();
+  menu.permanent.coffee.push({
+    id: 'coffee', sold_out: false, name: {de: 'Kaffee', en: 'Coffee'},
+    description: {}, variants: [], tags: [], price_small: 150, price_normal: 200, price_large: 280,
+  });
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: menu, yaml: 'menu', revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+  setup.hook.state.tab = 'permanent';
+  setup.hook.render();
+
+  const rendered = setup.elements['menu-form'].innerHTML;
+  assert.match(rendered, /Small €1\.50/);
+  assert.match(rendered, /Normal €2\.00/);
+  assert.match(rendered, /Large €2\.80/);
+});
+
+test('event logo upload accepts a small PNG and updates the form filename', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: config(), yaml: 'menu', revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+
+  const file = {name: 'brand.png', type: 'image/png', size: 1024};
+  setup.replies.push(response(201, {logo: 'alpha-logo.png'}));
+  await setup.hook.uploadLogo({files: [file], value: 'brand.png'});
+  const request = setup.requests.at(-1);
+  assert.equal(request.url, '/admin/api/events/alpha/logo');
+  assert.equal(request.options.method, 'POST');
+  assert.equal(request.options.headers['Content-Type'], undefined);
+  assert.equal(request.options.body.entries[0][0], 'logo');
+  assert.equal(setup.hook.state.config.conference.logo, 'alpha-logo.png');
+  assert.equal(setup.hook.state.previewLogo.filename, 'alpha-logo.png');
+  assert.match(setup.elements['menu-preview'].srcdoc, /data:image\/png;base64,dGVzdA==/);
+  assert.equal(setup.hook.isDirty(), true);
+  assert.match(setup.elements['editor-status'].textContent, /publish the menu/i);
+
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'logo']))}, value: ''});
+  assert.equal(setup.hook.state.previewLogo, null);
+  assert.doesNotMatch(setup.elements['menu-preview'].srcdoc, /data:image\/png/);
+  assert.match(setup.elements['menu-preview'].srcdoc, /\/static\/logo.png/);
+
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'logo']))}, value: 'draft-logo.png'});
+  assert.match(setup.elements['menu-preview'].srcdoc, /Logo preview unavailable/);
+  assert.doesNotMatch(setup.elements['menu-preview'].srcdoc, /\/branding\/alpha/);
+
+  setup.replies.push(response(201, {logo: 'alpha-logo.png'}));
+  await setup.hook.uploadLogo({files: [file], value: 'brand.png'});
+  setup.hook.state.tab = 'yaml';
+  const withoutLogo = config();
+  setup.replies.push(response(200, {valid: true, yaml: 'logo removed', config: withoutLogo}));
+  await setup.hook.validateMenu();
+  assert.equal(setup.hook.state.previewLogo, null);
 });

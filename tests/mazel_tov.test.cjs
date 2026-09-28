@@ -48,40 +48,37 @@ test('mazel tov mode shows cracked glass before delayed confetti and message', (
   assert.equal(completed, 1);
 });
 
-test('mazel tov uses the same three-second logo hold and toggles off', async () => {
-  const handlers = {};
-  let hold, delay, link, complete, loads = 0, starts = 0, stops = 0;
-  const source = fs.readFileSync('web/static/app.js', 'utf8').split('// A deliberate logo hold')[1]
+test('mazel tov starts after five language clicks and toggles off', async () => {
+  let languageClick;
+  let link, complete, loads = 0, starts = 0, stops = 0;
+  const source = fs.readFileSync('web/static/app.js', 'utf8').split('// Five clicks on the language switch')[1]
     .replace(/import\('\/static\/mazel-tov\.js(?:\?v=[^']+)?'\)/, 'loadMazelTov()');
-  vm.runInNewContext('// A deliberate logo hold'+source, {
+  vm.runInNewContext('// Five clicks on the language switch'+source, {
     loadMazelTov: async () => ({startMazelTov: (onStop) => {starts++; complete = onStop; return () => {stops++; onStop();};}}),
     document: {
       body: {dataset: {easterEggMode: 'mazel_tov'}},
-      querySelector: () => ({addEventListener: (name, callback) => {handlers[name] = callback;}}),
+      querySelector: () => ({addEventListener: (name, callback) => {languageClick = callback;}}),
       createElement: () => ({remove() {}}),
       head: {append(node) {loads++; link = node;}},
     },
-    setTimeout: (callback, ms) => {hold = callback; delay = ms; return 1;}, clearTimeout() {},
   });
 
   assert.equal(loads, 0);
-  handlers.pointerdown({button: 0, clientX: 0, clientY: 0});
-  assert.equal(delay, 3000);
-  hold();
+  for (let i = 0; i < 4; i++) languageClick();
+  assert.equal(loads, 0);
+  languageClick();
   assert.equal(loads, 1);
   link.onload();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(starts, 1);
 
   complete();
-  handlers.pointerdown({button: 0, clientX: 0, clientY: 0});
-  hold();
+  for (let i = 0; i < 5; i++) languageClick();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(starts, 2);
   assert.equal(loads, 1);
 
-  handlers.pointerdown({button: 0, clientX: 0, clientY: 0});
-  hold();
+  for (let i = 0; i < 5; i++) languageClick();
   assert.equal(stops, 1);
   assert.equal(loads, 1);
 });

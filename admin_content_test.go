@@ -118,6 +118,28 @@ func TestEventAdminPublishesValidMenuAtomically(t *testing.T) {
 	}
 }
 
+func TestEventAdminStoresUploadedLogoBesideMenu(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	logo := []byte("validated png bytes")
+	logoPath, err := admin.UploadLogo("/alpha", ".png", logo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(logoPath, "alpha-logo-") || !strings.HasSuffix(logoPath, ".png") {
+		t.Fatalf("logo path = %q", logoPath)
+	}
+	written, err := os.ReadFile(filepath.Join(contentDir, logoPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != string(logo) {
+		t.Fatal("uploaded logo contents changed")
+	}
+	if _, err := admin.UploadLogo("/alpha", ".gif", logo); !errors.Is(err, admincontent.ErrInvalidLogo) {
+		t.Fatalf("invalid extension error = %v", err)
+	}
+}
+
 func TestEventAdminInvalidPublishLeavesCurrentFile(t *testing.T) {
 	admin, contentDir := newTestEventAdmin(t)
 	before, revision, err := admin.ReadEvent("/alpha")

@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -73,12 +77,9 @@ func TestAdminAPIValidatesAndPublishes(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("publish response = %d %s", response.Code, response.Body.String())
 	}
-	var published struct {
-		Path     string `json:"path"`
-		Revision string `json:"revision"`
-	}
+	var published adminEventResponse
 	decodeTestJSON(t, response, &published)
-	if published.Path != "/alpha" || published.Revision != "rev-published" || content.files["/alpha"] != "conference: updated" {
+	if published.Path != "/alpha" || published.Revision != "rev-published" || published.YAML != "conference: updated" || content.files["/alpha"] != "conference: updated" {
 		t.Fatalf("published = %#v, content = %q", published, content.files["/alpha"])
 	}
 
@@ -168,10 +169,105 @@ func TestAdminAPIDoesNotExposeInternalErrors(t *testing.T) {
 	}
 }
 
+func TestAdminSerializationPreservesCommentsByEntryID(t *testing.T) {
+	current := []byte("items:\n  # supplier reference\n  - id: coffee\n    name: Old name # keep this note\n")
+	replacement := []byte("items:\n  - id: coffee\n    name: New name\n  - id: tea\n    name: Tea\n")
+	result := string(preserveYAMLComments(current, replacement))
+	for _, expected := range []string{"# supplier reference", "# keep this note", "name: New name", "id: tea"} {
+		if !strings.Contains(result, expected) {
+			t.Errorf("serialized YAML did not preserve %q:\n%s", expected, result)
+		}
+	}
+}
+
+func TestAdminAPIUploadsValidatedEventLogo(t *testing.T) {
+	content := newStubAdminContent()
+	handler := newAdminAPITestServer(t, content)
+	var imageData bytes.Buffer
+	if err := png.Encode(&imageData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+
+	request := newAdminLogoRequest(t, "/admin/api/events/alpha/logo", "brand.anything", imageData.Bytes())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d: %s", response.Code, response.Body.String())
+	}
+	if content.logoPath != "uploaded.png" || !bytes.Equal(content.logoData, imageData.Bytes()) {
+		t.Fatal("validated logo was not passed to the content store")
+	}
+
+	request = newAdminLogoRequest(t, "/admin/api/events/alpha/logo", "fake.png", []byte("not an image"))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid image status = %d: %s", response.Code, response.Body.String())
+	}
+
+	var jpegData bytes.Buffer
+	if err := jpeg.Encode(&jpegData, image.NewNRGBA(image.Rect(0, 0, 2, 2)), nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		format string
+		data   []byte
+	}{
+		{name: "truncated PNG", format: "png", data: truncatedImageWithValidConfig(t, imageData.Bytes())},
+		{name: "truncated JPEG", format: "jpeg", data: truncatedImageWithValidConfig(t, jpegData.Bytes())},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, format, err := image.DecodeConfig(bytes.NewReader(test.data)); err != nil || format != test.format {
+				t.Fatalf("test payload lacks valid %s config: %v", test.format, err)
+			}
+			request := newAdminLogoRequest(t, "/admin/api/events/alpha/logo", "truncated."+test.format, test.data)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("truncated image status = %d: %s", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	request = newAdminLogoRequest(t, "/admin/api/events/alpha/logo", "large.png", bytes.Repeat([]byte("x"), maxAdminLogoSize+1))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized image status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func truncatedImageWithValidConfig(t *testing.T, content []byte) []byte {
+	t.Helper()
+	for length := len(content) - 1; length > 0; length-- {
+		candidate := content[:length]
+		if _, _, configErr := image.DecodeConfig(bytes.NewReader(candidate)); configErr != nil {
+			continue
+		}
+		if _, _, decodeErr := image.Decode(bytes.NewReader(candidate)); decodeErr != nil {
+			return candidate
+		}
+	}
+	t.Fatal("could not construct a truncated image with readable metadata")
+	return nil
+}
+
 type stubAdminContent struct {
 	files     map[string]string
 	revisions map[string]string
 	listErr   error
+	logoPath  string
+	logoData  []byte
+}
+
+func (content *stubAdminContent) UploadLogo(eventPath, extension string, data []byte) (string, error) {
+	if _, ok := content.files[eventPath]; !ok {
+		return "", admincontent.ErrEventNotFound
+	}
+	content.logoPath = "uploaded" + extension
+	content.logoData = append([]byte(nil), data...)
+	return content.logoPath, nil
 }
 
 func newStubAdminContent() *stubAdminContent {
@@ -250,6 +346,27 @@ func newAdminAPIRequest(method, path, body string) *http.Request {
 		request.Header.Set(adminRequestHeader, "1")
 		request.Header.Set("Content-Type", "application/json")
 	}
+	return request
+}
+
+func newAdminLogoRequest(t *testing.T, requestPath, filename string, content []byte) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("logo", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "https://manna.example"+requestPath, &body)
+	request.SetBasicAuth("admin", "secret")
+	request.Header.Set(adminRequestHeader, "1")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
 	return request
 }
 

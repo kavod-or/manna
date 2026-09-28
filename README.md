@@ -141,17 +141,18 @@ Without `CONTENT_DIR`, the application uses the manifest template and menus embe
 
 ## Admin editor
 
-The optional editor can change the YAML of existing events. It cannot add, remove, rename, or remap events because `events.yaml` is not exposed to the editor and is mounted read-only by Compose.
+The optional editor manages the content of existing events with forms and writes the corresponding YAML in the background. It cannot add, remove, rename, or remap whole events because `events.yaml` is not exposed to the editor and is mounted read-only by Compose.
 
 ### Publishing a menu
 
 1. Open `/admin/` and sign in with username `admin`.
-2. Select an existing event. Manna loads its current YAML and revision.
-3. Edit the YAML and choose **Validate**. Validation does not change the live menu.
-4. Choose **Publish**. Manna validates again and atomically replaces that event's menu file.
-5. Reload the public event URL to verify the result; no application restart is needed.
+2. Select an existing event. Manna loads its current menu and revision.
+3. Add, edit, or remove menu content in the **Event**, **Permanent menu**, **Schedule**, and **Declarations** sections. The live guest preview uses the public menu design and follows unpublished form changes; select its language and day to review the result. The **Event** section can upload a validated PNG or JPEG logo of up to 2 MB. For bulk import/export or advanced edits, use the **YAML** section. Switching sections validates and synchronizes both representations.
+4. Choose **Check menu** to validate without changing the live menu.
+5. Choose **Publish**. Manna validates again and atomically replaces that event's menu file.
+6. Reload the public event URL to verify the result; no application restart is needed.
 
-If the file changed after the editor loaded it, publishing returns a conflict instead of overwriting the newer version. Reload the current YAML, review it, and reapply the intended change.
+If the file changed after the editor loaded it, publishing returns a conflict instead of overwriting the newer version. Reload the current menu, review it, and reapply the intended change.
 
 ### HTTPS reverse-proxy example
 
