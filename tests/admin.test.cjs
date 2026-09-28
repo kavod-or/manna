@@ -92,9 +92,11 @@ function adminContext(replies) {
 }
 
 test('visual editor loads structured menu and publishes form changes', async () => {
+  const published = config();
+  published.conference.name.en = 'Updated event';
   const setup = adminContext([
     response(200, {events: [{path: '/alpha'}, {path: '/beta'}]}),
-    response(200, {path: '/alpha', config: config(), revision: 'rev-1'}),
+    response(200, {path: '/alpha', config: config(), yaml: 'name: Test\n', revision: 'rev-1'}),
   ]);
   await setup.hook.ready;
 
@@ -118,7 +120,7 @@ test('visual editor loads structured menu and publishes form changes', async () 
   assert.equal(setup.hook.isDirty(), true);
   assert.equal(setup.elements['publish-button'].disabled, false);
 
-  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2'}));
+  setup.replies.push(response(200, {path: '/alpha', config: published, yaml: 'name: Updated event\n', revision: 'rev-2'}));
   await setup.hook.publishMenu();
   const request = setup.requests.at(-1);
   assert.equal(request.url, '/admin/api/events/alpha');
@@ -188,7 +190,7 @@ test('YAML can be edited directly and synchronized back to forms', async () => {
 
   setup.hook.updateField({dataset: {yaml: 'true'}, value: updated});
   assert.equal(setup.hook.isDirty(), true);
-  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2'}));
+  setup.replies.push(response(200, {path: '/alpha', config: imported, yaml: updated, revision: 'rev-2'}));
   await setup.hook.publishMenu();
   const payload = JSON.parse(setup.requests.at(-1).options.body);
   assert.equal(payload.yaml, updated);
@@ -257,6 +259,67 @@ test('publishing synchronizes YAML and form dirty baselines', async () => {
   const unload = {preventDefault() { this.prevented = true; }};
   setup.windowListeners.beforeunload(unload);
   assert.equal(unload.prevented, true);
+});
+
+test('comment-only YAML drafts survive switching to forms and back', async () => {
+  const originalYAML = 'conference:\n  name: A\n';
+  const draftYAML = '# keep this planning note\n' + originalYAML;
+  const menu = config();
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: menu, yaml: originalYAML, revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+
+  setup.replies.push(response(200, {valid: true, yaml: originalYAML, config: menu}));
+  await setup.hook.switchTab('yaml');
+  setup.hook.updateField({dataset: {yaml: 'true'}, value: draftYAML});
+
+  setup.replies.push(response(200, {valid: true, yaml: draftYAML, config: menu}));
+  await setup.hook.switchTab('event');
+  assert.equal(JSON.parse(setup.requests.at(-1).options.body).yaml, draftYAML);
+  assert.equal(setup.hook.isDirty(), true);
+  assert.equal(setup.elements['publish-button'].disabled, false);
+
+  setup.replies.push(response(200, {valid: true, yaml: draftYAML, config: menu}));
+  await setup.hook.switchTab('yaml');
+  const payload = JSON.parse(setup.requests.at(-1).options.body);
+  assert.equal(payload.source_yaml, draftYAML);
+  assert.ok(payload.config);
+  assert.equal(setup.hook.state.yaml, draftYAML);
+  assert.equal(setup.hook.isDirty(), true);
+});
+
+test('publishing forms uses draft YAML as the comment source', async () => {
+  const originalYAML = 'conference:\n  name: A\n';
+  const mixedYAML = '# supplier note\nconference:\n  name: B\n';
+  const publishedYAML = '# supplier note\nconference:\n  name: B\n  location: New Hall\n';
+  const original = config();
+  const mixed = config();
+  mixed.conference.name.en = 'B';
+  const published = config();
+  published.conference.name.en = 'B';
+  published.conference.location.en = 'New Hall';
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}]}),
+    response(200, {path: '/alpha', config: original, yaml: originalYAML, revision: 'rev-1'}),
+  ]);
+  await setup.hook.ready;
+
+  setup.replies.push(response(200, {valid: true, yaml: originalYAML, config: original}));
+  await setup.hook.switchTab('yaml');
+  setup.hook.updateField({dataset: {yaml: 'true'}, value: mixedYAML});
+  setup.replies.push(response(200, {valid: true, yaml: mixedYAML, config: mixed}));
+  await setup.hook.switchTab('event');
+  setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'location', 'en']))}, value: 'New Hall'});
+
+  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2', yaml: publishedYAML, config: published}));
+  await setup.hook.publishMenu();
+  const payload = JSON.parse(setup.requests.at(-1).options.body);
+  assert.equal(payload.source_yaml, mixedYAML);
+  assert.equal(payload.config.conference.location.en, 'New Hall');
+  assert.equal(setup.hook.state.yaml, publishedYAML);
+  assert.equal(setup.hook.isDirty(), false);
 });
 
 test('structural edits preserve open item panels and scroll position', async () => {

@@ -19,6 +19,8 @@ import (
 
 	admincontent "manna/internal/admin"
 	"manna/internal/menu"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestAdminAPIListsAndReadsEvents(t *testing.T) {
@@ -177,6 +179,36 @@ func TestAdminSerializationPreservesCommentsByEntryID(t *testing.T) {
 		if !strings.Contains(result, expected) {
 			t.Errorf("serialized YAML did not preserve %q:\n%s", expected, result)
 		}
+	}
+}
+
+func TestAdminSerializationUsesDraftYAMLComments(t *testing.T) {
+	config := menu.Config{
+		Conference: menu.Conference{
+			Languages: []string{"en"},
+			TimeZone:  "Europe/Berlin",
+			Name:      menu.Localized{EN: "Event"},
+			Location:  menu.Localized{EN: "Hall"},
+		},
+		Days: []menu.Day{{
+			Date: "2026-09-28",
+			Services: []menu.Service{{
+				ID: "lunch", Title: menu.Localized{EN: "Lunch"}, Subtitle: menu.Localized{EN: "Food"},
+				From: "12:00", Until: "13:00",
+			}},
+		}},
+	}
+	encoded, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := adminYAMLRequest{Config: &config, SourceYAML: "# draft planning note\n" + string(encoded)}
+	result, err := payload.menuYAML([]byte("# published note\n" + string(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result), "# draft planning note") || strings.Contains(string(result), "# published note") {
+		t.Fatalf("serialized YAML did not use draft comments:\n%s", result)
 	}
 }
 
