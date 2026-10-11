@@ -362,11 +362,12 @@
       elements.historyList.innerHTML = '<p class="history-empty">No previous published versions yet.</p>';
       return;
     }
-    elements.historyList.innerHTML = revisions.map((revision) => {
+    elements.historyList.innerHTML = revisions.map((revision, index) => {
       const archivedAt = new Date(revision.archived_at);
       const label = Number.isNaN(archivedAt.getTime()) ? revision.archived_at : archivedAt.toLocaleString();
       const shortRevision = String(revision.revision || '').replace(/^sha256:/, '').slice(0, 12);
-      return `<div class="history-entry"><span class="history-meta"><time datetime="${esc(revision.archived_at)}">${esc(label)}</time><code>${esc(shortRevision)}</code></span><button class="button secondary" type="button" data-history-id="${esc(revision.id)}" data-history-label="${esc(label)}">Restore</button></div>`;
+      const position = index === 0 ? 'Most recent backup' : `Older backup ${index + 1}`;
+      return `<article class="history-entry"><span class="history-marker" aria-hidden="true"></span><div class="history-meta"><strong>${esc(position)}</strong><time datetime="${esc(revision.archived_at)}">${esc(label)}</time><code title="Revision ${esc(shortRevision)}">#${esc(shortRevision)}</code></div><button class="button secondary history-restore" type="button" data-history-id="${esc(revision.id)}" data-history-label="${esc(label)}"><span aria-hidden="true">↶</span><span>Restore</span></button></article>`;
     }).join('');
   }
 
@@ -684,7 +685,7 @@
   }
 
   function renderYAML() {
-    return `<section class="form-section yaml-section"><div class="section-heading"><div><p class="eyebrow">Advanced</p><h2>Direct YAML editor</h2><p class="section-copy">Paste a complete menu here to import it, or copy the current YAML to export it.</p></div><button class="button secondary" type="button" data-action="copy-yaml">Copy YAML</button></div><label class="yaml-field"><span class="visually-hidden">Event menu YAML</span><textarea id="yaml-editor" data-yaml="true" spellcheck="false" autocapitalize="off" autocomplete="off">${esc(state.yaml)}</textarea></label><p class="yaml-help"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd> checks the YAML without publishing.</p></section>`;
+    return `<section class="form-section yaml-section"><div class="section-heading"><div><p class="eyebrow">Advanced</p><h2>Direct YAML editor</h2><p class="section-copy">Paste a complete menu here to import it, or copy the current YAML to export it.</p></div><button class="button secondary copy-yaml-button" type="button" data-action="copy-yaml">Copy YAML</button></div><label class="yaml-field"><span class="visually-hidden">Event menu YAML</span><textarea id="yaml-editor" data-yaml="true" spellcheck="false" autocapitalize="off" autocomplete="off">${esc(state.yaml)}</textarea></label><p class="yaml-help"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd> checks the YAML without publishing.</p></section>`;
   }
 
   function render() {

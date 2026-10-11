@@ -2,4 +2,4 @@
 package version
 
 // Current follows major.minor.patch versioning. Update it for each release.
-const Current = "0.12.1"
+const Current = "0.12.2"

@@ -181,6 +181,7 @@ test('revision history lists and restores a previous published menu', async () =
   await setup.hook.openHistory();
   assert.equal(setup.elements['history-panel'].hidden, false);
   assert.match(setup.elements['history-list'].innerHTML, /Restore/);
+  assert.match(setup.elements['history-list'].innerHTML, /Most recent backup/);
 
   setup.replies.push(
     response(200, {path: '/alpha', public_url: 'https://manna.example/alpha', config: restored, yaml: 'earlier menu', revision: 'rev-restored'}),
