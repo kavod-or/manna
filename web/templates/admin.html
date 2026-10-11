@@ -39,15 +39,19 @@
             <option>Loading events…</option>
           </select>
         </label>
-        <div class="editor-actions">
-          <button id="add-event-button" class="button secondary" type="button" disabled>Add event</button>
-          <button id="duplicate-event-button" class="button secondary" type="button" disabled>Duplicate event</button>
-          <button id="archive-event-button" class="button secondary" type="button" disabled>Archive event</button>
-          <button id="delete-event-button" class="button danger" type="button" disabled>Remove event</button>
-          <button id="reload-button" class="button secondary" type="button" disabled>Reload</button>
-          <button id="history-button" class="button secondary" type="button" aria-expanded="false" aria-controls="history-panel" disabled>History</button>
-          <button id="validate-button" class="button secondary" type="button" disabled>Check menu</button>
-          <button id="publish-button" class="button primary" type="button" disabled>Publish</button>
+        <div class="editor-actions" role="toolbar" aria-label="Event actions">
+          <div class="action-group" aria-label="Manage event">
+            <button id="add-event-button" class="button secondary top-action add-event" type="button" disabled><span class="action-icon" aria-hidden="true">+</span><span>Add event</span></button>
+            <button id="duplicate-event-button" class="button secondary top-action" type="button" disabled><span class="action-icon" aria-hidden="true">▢</span><span>Duplicate</span></button>
+            <button id="archive-event-button" class="button secondary top-action" type="button" disabled><span class="action-icon" aria-hidden="true">↓</span><span id="archive-event-label">Archive</span></button>
+            <button id="delete-event-button" class="button danger top-action" type="button" disabled><span class="action-icon" aria-hidden="true">×</span><span>Remove</span></button>
+          </div>
+          <div class="action-group" aria-label="Edit menu">
+            <button id="reload-button" class="button secondary top-action" type="button" disabled><span class="action-icon" aria-hidden="true">↻</span><span>Reload</span></button>
+            <button id="history-button" class="button secondary top-action" type="button" aria-expanded="false" aria-controls="history-panel" disabled><span class="action-icon" aria-hidden="true">◷</span><span>History</span></button>
+            <button id="validate-button" class="button secondary top-action" type="button" disabled><span class="action-icon" aria-hidden="true">✓</span><span>Check</span></button>
+            <button id="publish-button" class="button primary top-action publish-action" type="button" disabled><span>Publish</span><span class="action-icon" aria-hidden="true">↑</span></button>
+          </div>
         </div>
       </div>
 

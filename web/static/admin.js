@@ -4,6 +4,7 @@
     addEvent: document.getElementById('add-event-button'),
     duplicateEvent: document.getElementById('duplicate-event-button'),
     archiveEvent: document.getElementById('archive-event-button'),
+    archiveEventLabel: document.getElementById('archive-event-label'),
     deleteEvent: document.getElementById('delete-event-button'),
     eventStateBadge: document.getElementById('event-state-badge'),
     form: document.getElementById('menu-form'),
@@ -100,7 +101,7 @@
     elements.qrLogoOption.disabled = !publicAvailable || !state.canIncludeLogo;
     if (!publicAvailable || !state.canIncludeLogo) elements.qrLogoOption.checked = false;
 
-    elements.archiveEvent.textContent = state.archived ? 'Make public' : 'Archive event';
+    elements.archiveEventLabel.textContent = state.archived ? 'Make public' : 'Archive';
     elements.eventStateBadge.hidden = !state.archived;
     elements.eventStateBadge.textContent = state.archived ? 'Archived' : '';
   }

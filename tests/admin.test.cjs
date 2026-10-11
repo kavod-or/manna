@@ -49,7 +49,7 @@ function adminContext(replies, promptReplies = []) {
     'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
     'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
     'reload-button': element(), 'history-button': element(), 'history-panel': element({hidden: true}), 'history-close-button': element(), 'history-list': element(),
-    'add-event-button': element(), 'duplicate-event-button': element(), 'archive-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
+    'add-event-button': element(), 'duplicate-event-button': element(), 'archive-event-button': element(), 'archive-event-label': element(), 'delete-event-button': element(), 'public-menu-link': element(),
     'event-state-badge': element({hidden: true}),
     'qr-download-link': element(),
     'qr-target': element({hidden: true}), 'qr-target-url': element(),
@@ -244,7 +244,7 @@ test('archiving hides public actions while keeping the event editable', async ()
   assert.equal(setup.elements['qr-download-link'].attributes['aria-disabled'], 'true');
   assert.equal(setup.elements['qr-target'].hidden, true);
   assert.equal(setup.elements['event-state-badge'].hidden, false);
-  assert.equal(setup.elements['archive-event-button'].textContent, 'Make public');
+  assert.equal(setup.elements['archive-event-label'].textContent, 'Make public');
   assert.match(setup.elements['editor-status'].textContent, /no longer publicly available/i);
 
   setup.replies.push(response(200, {path: '/alpha', archived: false, manifest_revision: 'manifest-3', public_url: 'https://manna.example/alpha'}));
@@ -254,7 +254,7 @@ test('archiving hides public actions while keeping the event editable', async ()
   assert.equal(setup.elements['public-menu-link'].href, 'https://manna.example/alpha');
   assert.equal(setup.elements['public-menu-link'].attributes['aria-disabled'], 'false');
   assert.equal(setup.elements['event-state-badge'].hidden, true);
-  assert.equal(setup.elements['archive-event-button'].textContent, 'Archive event');
+  assert.equal(setup.elements['archive-event-label'].textContent, 'Archive');
 });
 
 test('visual editor loads structured menu and publishes form changes', async () => {
