@@ -23,14 +23,16 @@ import (
 const maxBrandingLogoSize = 5 << 20
 
 type server struct {
-	events        EventsLoader
-	page          *template.Template
-	static        http.Handler
-	adminStatic   http.Handler
-	assetVersions map[string]string
-	content       fs.FS
-	admin         admincontent.Content
-	logger        *slog.Logger
+	events                 EventsLoader
+	page                   *template.Template
+	static                 http.Handler
+	adminStatic            http.Handler
+	assetVersions          map[string]string
+	content                fs.FS
+	admin                  admincontent.Content
+	adminTrustProxyHTTPS   bool
+	adminTrustedProxyCIDRs []netip.Prefix
+	logger                 *slog.Logger
 }
 
 type EventsLoader func() (map[string]menu.Loader, error)
@@ -254,14 +256,16 @@ func NewDynamicWithAdmin(events EventsLoader, templates fs.FS, static fs.FS, con
 		}
 	}
 	s := &server{
-		events:        events,
-		page:          page,
-		static:        http.StripPrefix("/static/", http.FileServer(http.FS(static))),
-		adminStatic:   http.StripPrefix("/admin/static/", http.FileServer(http.FS(static))),
-		assetVersions: assetVersions,
-		content:       content,
-		admin:         adminOptions.Content,
-		logger:        logger,
+		events:                 events,
+		page:                   page,
+		static:                 http.StripPrefix("/static/", http.FileServer(http.FS(static))),
+		adminStatic:            http.StripPrefix("/admin/static/", http.FileServer(http.FS(static))),
+		assetVersions:          assetVersions,
+		content:                content,
+		admin:                  adminOptions.Content,
+		adminTrustProxyHTTPS:   adminOptions.TrustProxyHTTPS,
+		adminTrustedProxyCIDRs: adminOptions.TrustedProxyCIDRs,
+		logger:                 logger,
 	}
 
 	mux := http.NewServeMux()
@@ -306,30 +310,38 @@ func (s *server) brandingLogo(writer http.ResponseWriter, request *http.Request)
 		http.NotFound(writer, request)
 		return
 	}
-	info, err := fs.Stat(s.content, config.Conference.Logo)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBrandingLogoSize {
-		http.NotFound(writer, request)
-		return
-	}
-	file, err := s.content.Open(config.Conference.Logo)
-	if err != nil {
-		http.NotFound(writer, request)
-		return
-	}
-	defer file.Close()
-	logo, err := io.ReadAll(io.LimitReader(file, maxBrandingLogoSize+1))
-	if err != nil || len(logo) > maxBrandingLogoSize {
-		http.NotFound(writer, request)
-		return
-	}
-	contentType := http.DetectContentType(logo)
-	if !strings.HasPrefix(contentType, "image/") {
+	logo, contentType, modified, ok := s.readBrandingAsset(config.Conference.Logo)
+	if !ok {
 		http.NotFound(writer, request)
 		return
 	}
 	writer.Header().Set("Cache-Control", "no-cache")
 	writer.Header().Set("Content-Type", contentType)
-	http.ServeContent(writer, request, "branding-logo", info.ModTime(), bytes.NewReader(logo))
+	http.ServeContent(writer, request, "branding-logo", modified, bytes.NewReader(logo))
+}
+
+func (s *server) readBrandingAsset(name string) ([]byte, string, time.Time, bool) {
+	if s.content == nil || !fs.ValidPath(name) || strings.Contains(name, `\`) {
+		return nil, "", time.Time{}, false
+	}
+	info, err := fs.Stat(s.content, name)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBrandingLogoSize {
+		return nil, "", time.Time{}, false
+	}
+	file, err := s.content.Open(name)
+	if err != nil {
+		return nil, "", time.Time{}, false
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxBrandingLogoSize+1))
+	if err != nil || len(content) > maxBrandingLogoSize {
+		return nil, "", time.Time{}, false
+	}
+	contentType := http.DetectContentType(content)
+	if !strings.HasPrefix(contentType, "image/") {
+		return nil, "", time.Time{}, false
+	}
+	return content, contentType, info.ModTime(), true
 }
 
 // Only shared presentation assets are public. Never expose a directory listing,

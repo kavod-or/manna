@@ -26,7 +26,10 @@
           <h1 id="editor-title">Edit event menu</h1>
           <p class="intro">Manage the menu with forms or edit its YAML directly. Publishing updates the event file.</p>
         </div>
-        <a id="public-menu-link" class="secondary-link is-disabled" href="#" target="_blank" rel="noopener noreferrer" aria-disabled="true">Open public menu</a>
+        <div class="heading-actions">
+          <a id="public-menu-link" class="secondary-link is-disabled" href="#" target="_blank" rel="noopener noreferrer" aria-disabled="true">Open public menu</a>
+          <a id="qr-download-link" class="secondary-link is-disabled" href="#" download aria-disabled="true">Download QR code</a>
+        </div>
       </div>
 
       <div class="editor-toolbar">
@@ -44,6 +47,9 @@
           <button id="publish-button" class="button primary" type="button" disabled>Publish</button>
         </div>
       </div>
+
+      <p id="qr-target" class="qr-target" hidden><strong>QR code URL</strong><code id="qr-target-url"></code></p>
+      <label id="qr-logo-control" class="qr-logo-control" hidden><input id="qr-logo-option" type="checkbox"><span>Place the published event logo inside the QR code<small>Uses high error correction; test the downloaded code before printing.</small></span></label>
 
       <div id="editor-status" class="editor-status is-neutral" role="status" aria-live="polite">Loading events…</div>
 
@@ -72,5 +78,6 @@
       </div>
     </section>
   </main>
+  <footer class="legal-note">QR Code is a registered trademark of DENSO WAVE INCORPORATED.</footer>
 </body>
 </html>{{end}}

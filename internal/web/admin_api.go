@@ -16,7 +16,7 @@ import (
 	admincontent "manna/internal/admin"
 	"manna/internal/menu"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 const maxAdminRequestSize = 3 << 20
@@ -37,6 +37,8 @@ type adminYAMLRequest struct {
 
 type adminEventResponse struct {
 	Path             string       `json:"path"`
+	PublicURL        string       `json:"public_url,omitempty"`
+	CanIncludeLogo   bool         `json:"can_include_logo"`
 	YAML             string       `json:"yaml"`
 	Config           *menu.Config `json:"config,omitempty"`
 	Revision         string       `json:"revision"`
@@ -71,6 +73,7 @@ func (s *server) adminHandler() http.Handler {
 	mux.HandleFunc("DELETE /admin/api/events/{slug}", s.adminDeleteEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/validate", s.adminValidateEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/logo", s.adminUploadLogo)
+	mux.HandleFunc("GET /admin/api/events/{slug}/qr.svg", s.adminEventQR)
 	mux.HandleFunc("PUT /admin/api/events/{slug}", s.adminPublishEvent)
 	return mux
 }
@@ -228,11 +231,18 @@ func (s *server) adminReadEvent(writer http.ResponseWriter, request *http.Reques
 	if decodeErr == nil {
 		editableConfig = &config
 	}
+	publicURL, err := s.publicEventURL(request, eventPath)
+	if err != nil {
+		s.adminInternalError(writer, "build public event URL", err)
+		return
+	}
 	writeAdminJSON(writer, http.StatusOK, adminEventResponse{
-		Path:     eventPath,
-		YAML:     string(content),
-		Config:   editableConfig,
-		Revision: revision,
+		Path:           eventPath,
+		PublicURL:      publicURL,
+		CanIncludeLogo: editableConfig != nil && config.Conference.Logo != "",
+		YAML:           string(content),
+		Config:         editableConfig,
+		Revision:       revision,
 	})
 }
 
@@ -299,10 +309,11 @@ func (s *server) adminPublishEvent(writer http.ResponseWriter, request *http.Req
 		editableConfig = &config
 	}
 	writeAdminJSON(writer, http.StatusOK, adminEventResponse{
-		Path:     eventPath,
-		YAML:     string(content),
-		Config:   editableConfig,
-		Revision: revision,
+		Path:           eventPath,
+		CanIncludeLogo: editableConfig != nil && config.Conference.Logo != "",
+		YAML:           string(content),
+		Config:         editableConfig,
+		Revision:       revision,
 	})
 }
 

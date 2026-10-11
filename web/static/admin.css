@@ -95,8 +95,16 @@ h1 { margin: 0; color: var(--green); font-size: clamp(1.6rem, 4vw, 2.4rem); line
   text-underline-offset: 0.2em;
 }
 
+.heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 1rem; }
 .secondary-link.is-disabled { color: var(--muted); pointer-events: none; opacity: 0.65; }
 .editor-toolbar { margin-top: 1.75rem; align-items: end; }
+.qr-target { display: flex; margin: 0.8rem 0 0; align-items: baseline; gap: 0.55rem; color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
+.qr-target[hidden] { display: none; }
+.qr-target code { color: var(--ink); font-family: var(--mono); }
+.qr-logo-control { display: flex; width: fit-content; margin-top: 0.45rem; align-items: center; gap: 0.45rem; color: var(--muted); font-size: 0.78rem; }
+.qr-logo-control[hidden] { display: none; }
+.qr-logo-control span { display: grid; gap: 0.05rem; }
+.qr-logo-control small { font-size: 0.68rem; }
 
 .event-field { display: grid; flex: 1 1 22rem; gap: 0.35rem; color: var(--muted); font-size: 0.82rem; font-weight: 700; }
 
@@ -249,12 +257,15 @@ select {
 .preview-help { margin: 0.7rem 0 0; color: var(--muted); font-size: 0.72rem; }
 kbd { padding: 0.08rem 0.3rem; border: 1px solid var(--line); border-radius: 0.3rem; background: #f3f1eb; font-family: var(--mono); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.legal-note { width: min(100% - 2rem, 110rem); margin: 0 auto 1.5rem; color: var(--muted); font-size: 0.7rem; text-align: center; }
 
 @media (max-width: 44rem) {
   .admin-header, .admin-shell { width: min(100% - 1rem, 110rem); }
   .admin-shell { margin: 0.5rem auto 1rem; }
   .editor-card { border-radius: 1rem; }
   .editor-heading, .editor-toolbar { align-items: stretch; flex-direction: column; }
+  .heading-actions { align-items: flex-start; flex-direction: column; gap: 0.45rem; }
+  .qr-target { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
   .secondary-link { align-self: flex-start; }
   .event-field { flex-basis: auto; }
   .editor-actions { display: grid; grid-template-columns: repeat(3, 1fr); }

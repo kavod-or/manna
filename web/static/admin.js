@@ -10,6 +10,11 @@
     publish: document.getElementById('publish-button'),
     reload: document.getElementById('reload-button'),
     publicLink: document.getElementById('public-menu-link'),
+    qrDownload: document.getElementById('qr-download-link'),
+    qrTarget: document.getElementById('qr-target'),
+    qrTargetURL: document.getElementById('qr-target-url'),
+    qrLogoControl: document.getElementById('qr-logo-control'),
+    qrLogoOption: document.getElementById('qr-logo-option'),
     previewPanel: document.getElementById('preview-panel'),
     preview: document.getElementById('menu-preview'),
     previewLanguage: document.getElementById('preview-language'),
@@ -17,7 +22,7 @@
   };
   if (!elements.form) return;
 
-  const state = {path: '', revision: '', manifestRevision: '', canManageEvents: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
+  const state = {path: '', publicURL: '', revision: '', manifestRevision: '', canManageEvents: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
   const tabs = [['event', 'Event'], ['permanent', 'Permanent menu'], ['schedule', 'Schedule'], ['regulatory', 'Declarations'], ['yaml', 'YAML']];
   let previewTimer = 0;
   const eventSlug = (eventPath) => encodeURIComponent(eventPath.replace(/^\//, ''));
@@ -69,9 +74,19 @@
 
   function setBusy(busy) { state.busy = busy; updateControls(); }
   function updatePublicLink() {
-    elements.publicLink.href = state.path || '#';
+    const publicURL = state.publicURL || state.path;
+    elements.publicLink.href = publicURL || '#';
     elements.publicLink.classList[state.path ? 'remove' : 'add']('is-disabled');
     elements.publicLink.setAttribute('aria-disabled', String(!state.path));
+    const includeLogo = state.canIncludeLogo && elements.qrLogoOption.checked;
+    elements.qrDownload.href = state.path ? `/admin/api/events/${eventSlug(state.path)}/qr.svg${includeLogo ? '?logo=1' : ''}` : '#';
+    elements.qrDownload.classList[state.path ? 'remove' : 'add']('is-disabled');
+    elements.qrDownload.setAttribute('aria-disabled', String(!state.path));
+    elements.qrTarget.hidden = !publicURL;
+    elements.qrTargetURL.textContent = publicURL || '';
+    elements.qrLogoControl.hidden = !state.canIncludeLogo;
+    elements.qrLogoOption.disabled = !state.canIncludeLogo;
+    if (!state.canIncludeLogo) elements.qrLogoOption.checked = false;
   }
 
   async function requestJSON(url, options = {}) {
@@ -136,7 +151,7 @@
   }
 
   function clearEvent() {
-    state.path = ''; state.revision = ''; state.config = null; state.saved = '';
+    state.path = ''; state.publicURL = ''; state.revision = ''; state.canIncludeLogo = false; state.config = null; state.saved = '';
     state.yaml = ''; state.savedYAML = ''; state.previewLogo = null; state.publishedLogo = '';
     elements.form.replaceChildren();
     elements.tabs.hidden = true;
@@ -227,6 +242,9 @@
       const body = await requestJSON(`/admin/api/events/${eventSlug(eventPath)}`);
       if (sequence !== state.loadSequence) return false;
       state.path = body.path;
+      state.publicURL = body.public_url || body.path;
+      state.canIncludeLogo = Boolean(body.can_include_logo);
+      elements.qrLogoOption.checked = false;
       state.revision = body.revision;
       state.yaml = body.yaml || '';
       state.savedYAML = state.yaml;
@@ -613,7 +631,9 @@
       state.saved = body.config || !publishedFromYAML ? snapshot() : null;
       state.savedYAML = typeof body.yaml === 'string' || publishedFromYAML ? state.yaml : null;
       if (body.config || !publishedFromYAML) state.publishedLogo = state.config?.conference.logo || '';
+      state.canIncludeLogo = Boolean(body.can_include_logo);
       state.previewLogo = null;
+      updatePublicLink();
       renderPreview();
       setStatus(`${state.path} was published successfully.`, 'success');
     } catch (error) {
@@ -732,6 +752,7 @@
   });
   elements.previewLanguage?.addEventListener('change', () => { state.previewLanguage = elements.previewLanguage.value; renderPreview(); });
   elements.previewDay?.addEventListener('change', () => { state.previewDay = Number(elements.previewDay.value) || 0; renderPreview(); });
+  elements.qrLogoOption.addEventListener('change', updatePublicLink);
   window.addEventListener('beforeunload', (event) => { if (isDirty()) { event.preventDefault(); event.returnValue = ''; } });
 
   updatePublicLink();

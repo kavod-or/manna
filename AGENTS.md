@@ -19,7 +19,7 @@ Manna is a multilingual conference catering guide with multiple event URLs and a
 
 ## Development commands
 
-Run commands from the repository root. The module currently requires Go 1.27.1; JavaScript tests need Node.js with `node --test` support.
+Run commands from the repository root. The module currently requires Go 1.27.2; JavaScript tests need Node.js with `node --test` support.
 
 - `make test`: run all Go and JavaScript tests.
 - `go test ./...`: run Go tests only.

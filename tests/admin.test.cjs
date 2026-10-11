@@ -49,6 +49,9 @@ function adminContext(replies, promptReplies = []) {
     'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
     'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
     'reload-button': element(), 'add-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
+    'qr-download-link': element(),
+    'qr-target': element({hidden: true}), 'qr-target-url': element(),
+    'qr-logo-control': element({hidden: true}), 'qr-logo-option': element({checked: false}),
     'preview-panel': element({hidden: true}), 'menu-preview': element(),
     'preview-language': element(), 'preview-day': element(),
   };
@@ -139,12 +142,24 @@ test('event removal requires the exact path before sending a request', async () 
   assert.match(setup.elements['editor-status'].textContent, /must exactly match/);
 });
 
+test('QR download stays disabled when no event exists', async () => {
+  const setup = adminContext([
+    response(200, {events: [], revision: 'manifest-1', can_manage: true}),
+  ]);
+  await setup.hook.ready;
+  assert.equal(setup.elements['qr-download-link'].href, '#');
+  assert.equal(setup.elements['qr-download-link'].attributes['aria-disabled'], 'true');
+  assert.equal(setup.elements['qr-download-link'].classList.contains('is-disabled'), true);
+  assert.equal(setup.elements['qr-target'].hidden, true);
+  assert.equal(setup.elements['qr-logo-control'].hidden, true);
+});
+
 test('visual editor loads structured menu and publishes form changes', async () => {
   const published = config();
   published.conference.name.en = 'Updated event';
   const setup = adminContext([
     response(200, {events: [{path: '/alpha'}, {path: '/beta'}]}),
-    response(200, {path: '/alpha', config: config(), yaml: 'name: Test\n', revision: 'rev-1'}),
+    response(200, {path: '/alpha', public_url: 'https://manna.example/alpha', can_include_logo: true, config: config(), yaml: 'name: Test\n', revision: 'rev-1'}),
   ]);
   await setup.hook.ready;
 
@@ -154,7 +169,15 @@ test('visual editor loads structured menu and publishes form changes', async () 
   assert.match(setup.elements['menu-form'].innerHTML, /Girly vibes \(default\)/);
   assert.match(setup.elements['menu-form'].innerHTML, /Mazel Tov/);
   assert.doesNotMatch(setup.elements['menu-form'].innerHTML, /yaml-editor/);
-  assert.equal(setup.elements['public-menu-link'].href, '/alpha');
+  assert.equal(setup.elements['public-menu-link'].href, 'https://manna.example/alpha');
+  assert.equal(setup.elements['qr-download-link'].href, '/admin/api/events/alpha/qr.svg');
+  assert.equal(setup.elements['qr-download-link'].attributes['aria-disabled'], 'false');
+  assert.equal(setup.elements['qr-target'].hidden, false);
+  assert.equal(setup.elements['qr-target-url'].textContent, 'https://manna.example/alpha');
+  assert.equal(setup.elements['qr-logo-control'].hidden, false);
+  setup.elements['qr-logo-option'].checked = true;
+  setup.elements['qr-logo-option'].dispatch('change');
+  assert.equal(setup.elements['qr-download-link'].href, '/admin/api/events/alpha/qr.svg?logo=1');
   assert.equal(setup.elements['preview-panel'].hidden, false);
   assert.match(setup.elements['menu-preview'].srcdoc, /focus-card/);
   assert.match(setup.elements['menu-preview'].srcdoc, /Mittagessen/);

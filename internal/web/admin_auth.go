@@ -45,7 +45,7 @@ func newAdminSecurity(password string, trustProxyHTTPS bool, trustedProxyCIDRs [
 		writer.Header().Set("Cache-Control", "no-store")
 
 		trustedProxy := trustProxyHTTPS && requestFromTrustedProxy(request, trustedProxyCIDRs)
-		secure := request.TLS != nil || (trustedProxy && forwardedHTTPS(request))
+		secure := requestIsHTTPS(request, trustedProxy)
 		if secure {
 			writer.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -147,6 +147,10 @@ func (failures *adminLoginFailures) clear(client string) {
 
 func forwardedHTTPS(request *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(request.Header.Get("X-Forwarded-Proto")), "https")
+}
+
+func requestIsHTTPS(request *http.Request, trustedProxy bool) bool {
+	return request.TLS != nil || (trustedProxy && forwardedHTTPS(request))
 }
 
 func requestFromTrustedProxy(request *http.Request, trustedProxyCIDRs []netip.Prefix) bool {

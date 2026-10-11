@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"io/fs"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -20,7 +21,7 @@ import (
 	admincontent "manna/internal/admin"
 	"manna/internal/menu"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestAdminAPIListsAndReadsEvents(t *testing.T) {
@@ -50,7 +51,7 @@ func TestAdminAPIListsAndReadsEvents(t *testing.T) {
 	}
 	var event adminEventResponse
 	decodeTestJSON(t, response, &event)
-	if event.Path != "/alpha" || event.YAML != content.files["/alpha"] || event.Revision != content.revisions["/alpha"] {
+	if event.Path != "/alpha" || event.PublicURL != "https://manna.example/alpha" || event.YAML != content.files["/alpha"] || event.Revision != content.revisions["/alpha"] {
 		t.Fatalf("event = %#v", event)
 	}
 
@@ -430,13 +431,17 @@ func newAdminAPITestServer(t *testing.T, content admincontent.Content) http.Hand
 }
 
 func newAdminAPITestServerWithLogger(t *testing.T, content admincontent.Content, logger *slog.Logger) http.Handler {
+	return newAdminAPITestServerWithStorageAndLogger(t, content, nil, logger)
+}
+
+func newAdminAPITestServerWithStorageAndLogger(t *testing.T, content admincontent.Content, storage fs.FS, logger *slog.Logger) http.Handler {
 	t.Helper()
 	templates := fstest.MapFS{
 		"web/templates/index.html": {Data: []byte(`{{define "index.html"}}menu{{end}}`)},
 		"web/templates/admin.html": {Data: []byte(`{{define "admin.html"}}admin editor{{end}}`)},
 	}
 	events := func() (map[string]menu.Loader, error) { return map[string]menu.Loader{}, nil }
-	handler, err := NewDynamicWithAdmin(events, templates, fstest.MapFS{}, nil, logger, AdminOptions{Password: "secret", Content: content})
+	handler, err := NewDynamicWithAdmin(events, templates, fstest.MapFS{}, storage, logger, AdminOptions{Password: "secret", Content: content})
 	if err != nil {
 		t.Fatal(err)
 	}

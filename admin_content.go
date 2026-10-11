@@ -18,7 +18,7 @@ import (
 	admincontent "manna/internal/admin"
 	"manna/internal/menu"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type eventAdmin struct {
