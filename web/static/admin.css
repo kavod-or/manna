@@ -151,6 +151,18 @@ select {
 .editor-status.is-warning { border-color: #d9bd6d; color: var(--warning); background: var(--warning-soft); }
 .editor-status.is-error { border-color: #dda69e; color: var(--danger); background: var(--danger-soft); }
 
+.history-panel { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 0.9rem; background: #f7f5ef; }
+.history-panel[hidden] { display: none; }
+.history-heading, .history-entry { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.history-heading h2 { margin: 0; color: var(--green); font-size: 1.25rem; }
+.history-help, .history-empty { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.history-list { display: grid; gap: 0.6rem; margin-top: 1rem; }
+.history-entry { padding: 0.7rem 0.8rem; border: 1px solid var(--line); border-radius: 0.75rem; background: var(--paper); }
+.history-meta { display: grid; min-width: 0; gap: 0.1rem; }
+.history-meta time { font-weight: 700; }
+.history-meta code { color: var(--muted); font-family: var(--mono); font-size: 0.72rem; overflow-wrap: anywhere; }
+.history-entry .button { min-height: 2.3rem; padding: 0.35rem 0.8rem; }
+
 .editor-tabs {
   display: flex;
   gap: 0.35rem;

@@ -10,6 +10,10 @@
     validate: document.getElementById('validate-button'),
     publish: document.getElementById('publish-button'),
     reload: document.getElementById('reload-button'),
+    history: document.getElementById('history-button'),
+    historyPanel: document.getElementById('history-panel'),
+    historyClose: document.getElementById('history-close-button'),
+    historyList: document.getElementById('history-list'),
     publicLink: document.getElementById('public-menu-link'),
     qrDownload: document.getElementById('qr-download-link'),
     qrTarget: document.getElementById('qr-target'),
@@ -23,7 +27,7 @@
   };
   if (!elements.form) return;
 
-  const state = {path: '', publicURL: '', revision: '', manifestRevision: '', canManageEvents: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
+  const state = {path: '', publicURL: '', revision: '', manifestRevision: '', canManageEvents: false, canUseHistory: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
   const tabs = [['event', 'Event'], ['permanent', 'Permanent menu'], ['schedule', 'Schedule'], ['regulatory', 'Declarations'], ['yaml', 'YAML']];
   let previewTimer = 0;
   const eventSlug = (eventPath) => encodeURIComponent(eventPath.replace(/^\//, ''));
@@ -65,7 +69,9 @@
     elements.validate.disabled = state.busy || !loaded;
     elements.publish.disabled = state.busy || !loaded || !isDirty();
     elements.reload.disabled = state.busy || !loaded;
+    elements.history.disabled = state.busy || !loaded || !state.canUseHistory;
     for (const input of elements.form.querySelectorAll?.('input, textarea, select, button') || []) input.disabled = state.busy || !loaded;
+    for (const button of elements.historyList.querySelectorAll?.('button') || []) button.disabled = state.busy;
   }
 
   function changed(options = {}) {
@@ -155,6 +161,9 @@
   function clearEvent() {
     state.path = ''; state.publicURL = ''; state.revision = ''; state.canIncludeLogo = false; state.config = null; state.saved = '';
     state.yaml = ''; state.savedYAML = ''; state.previewLogo = null; state.publishedLogo = '';
+    elements.historyPanel.hidden = true;
+    elements.history.setAttribute('aria-expanded', 'false');
+    elements.historyList.replaceChildren();
     elements.form.replaceChildren();
     elements.tabs.hidden = true;
     elements.previewPanel.hidden = true;
@@ -168,6 +177,7 @@
       const body = await requestJSON('/admin/api/events');
       state.manifestRevision = body.revision || '';
       state.canManageEvents = Boolean(body.can_manage);
+      state.canUseHistory = Boolean(body.can_history);
       writeOptions(body);
       if (!body.events?.length) {
         clearEvent();
@@ -304,6 +314,73 @@
       if (sequence === state.loadSequence) setStatus(error.message || 'Could not load the event.', 'error');
       return false;
     } finally { if (sequence === state.loadSequence) setBusy(false); }
+  }
+
+  function renderHistory(revisions) {
+    if (!revisions.length) {
+      elements.historyList.innerHTML = '<p class="history-empty">No previous published versions yet.</p>';
+      return;
+    }
+    elements.historyList.innerHTML = revisions.map((revision) => {
+      const archivedAt = new Date(revision.archived_at);
+      const label = Number.isNaN(archivedAt.getTime()) ? revision.archived_at : archivedAt.toLocaleString();
+      const shortRevision = String(revision.revision || '').replace(/^sha256:/, '').slice(0, 12);
+      return `<div class="history-entry"><span class="history-meta"><time datetime="${esc(revision.archived_at)}">${esc(label)}</time><code>${esc(shortRevision)}</code></span><button class="button secondary" type="button" data-history-id="${esc(revision.id)}" data-history-label="${esc(label)}">Restore</button></div>`;
+    }).join('');
+  }
+
+  async function refreshHistory() {
+    const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}/history`);
+    renderHistory(body.revisions || []);
+  }
+
+  async function refreshHistorySafely() {
+    try { await refreshHistory(); return true; }
+    catch (error) {
+      elements.historyList.innerHTML = `<p class="history-empty">${esc(error.message || 'Could not load revision history.')}</p>`;
+      return false;
+    }
+  }
+
+  async function openHistory() {
+    if (state.busy || !state.path || !state.canUseHistory) return;
+    elements.historyPanel.hidden = false;
+    elements.history.setAttribute('aria-expanded', 'true');
+    elements.historyList.innerHTML = '<p class="history-empty">Loading revision history…</p>';
+    await refreshHistorySafely();
+  }
+
+  function closeHistory() {
+    elements.historyPanel.hidden = true;
+    elements.history.setAttribute('aria-expanded', 'false');
+  }
+
+  async function restoreEvent(historyID, label = 'the selected version') {
+    if (state.busy || !state.path || !state.canUseHistory || !historyID) return;
+    if (isDirty() && !window.confirm('Discard your unpublished changes before restoring a published version?')) return;
+    if (!window.confirm(`Restore the version from ${label}? The current published version will remain in history.`)) return;
+    setBusy(true); setStatus(`Restoring ${state.path}…`);
+    try {
+      const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}/history/${encodeURIComponent(historyID)}/restore`, {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
+        body: JSON.stringify({revision: state.revision}),
+      });
+      state.revision = body.revision;
+      state.publicURL = body.public_url || state.publicURL || state.path;
+      state.yaml = body.yaml || '';
+      state.savedYAML = state.yaml;
+      applyConfig(body.config);
+      state.saved = snapshot();
+      state.publishedLogo = state.config.conference.logo || '';
+      state.canIncludeLogo = Boolean(body.can_include_logo);
+      state.previewLogo = null;
+      updatePublicLink();
+      render();
+      await refreshHistorySafely();
+      setStatus(`The version from ${label} is now published.`, 'success');
+    } catch (error) {
+      setStatus(error.status === 409 ? 'The live menu changed after you loaded it. Reload before restoring a version.' : (error.message || 'Could not restore the event.'), error.status === 409 ? 'warning' : 'error');
+    } finally { setBusy(false); }
   }
 
   function input(label, path, options = {}) {
@@ -668,6 +745,7 @@
       state.previewLogo = null;
       updatePublicLink();
       renderPreview();
+      if (!elements.historyPanel.hidden) await refreshHistorySafely();
       setStatus(`${state.path} was published successfully.`, 'success');
     } catch (error) {
       setStatus(error.status === 409 ? 'The live menu changed after you loaded it. Reload before publishing again.' : (error.message || 'Could not publish the menu.'), error.status === 409 ? 'warning' : 'error');
@@ -762,6 +840,12 @@
   elements.duplicateEvent.addEventListener('click', duplicateEvent);
   elements.deleteEvent.addEventListener('click', deleteEvent);
   elements.reload.addEventListener('click', () => loadEvent(state.path));
+  elements.history.addEventListener('click', openHistory);
+  elements.historyClose.addEventListener('click', closeHistory);
+  elements.historyList.addEventListener('click', (event) => {
+    const button = event.target.closest?.('button[data-history-id]');
+    if (button) restoreEvent(button.dataset.historyId, button.dataset.historyLabel);
+  });
   elements.validate.addEventListener('click', validateMenu);
   elements.publish.addEventListener('click', publishMenu);
   elements.tabs.addEventListener('click', (event) => { if (event.target.dataset.tab) switchTab(event.target.dataset.tab); });
@@ -791,5 +875,5 @@
 
   updatePublicLink();
   const ready = loadEvents();
-  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, duplicateEvent, deleteEvent, addAt, removeAt, updateField, render, flushPreview});
+  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, duplicateEvent, deleteEvent, openHistory, restoreEvent, addAt, removeAt, updateField, render, flushPreview});
 })();

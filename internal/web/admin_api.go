@@ -64,6 +64,10 @@ type adminDeleteEventRequest struct {
 	Confirmation string `json:"confirmation"`
 }
 
+type adminRestoreEventRequest struct {
+	Revision string `json:"revision"`
+}
+
 func (s *server) adminHandler() http.Handler {
 	if s.admin == nil {
 		return http.HandlerFunc(http.NotFound)
@@ -77,11 +81,64 @@ func (s *server) adminHandler() http.Handler {
 	mux.HandleFunc("GET /admin/api/events/{slug}", s.adminReadEvent)
 	mux.HandleFunc("DELETE /admin/api/events/{slug}", s.adminDeleteEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/duplicate", s.adminDuplicateEvent)
+	mux.HandleFunc("GET /admin/api/events/{slug}/history", s.adminEventHistory)
+	mux.HandleFunc("POST /admin/api/events/{slug}/history/{historyID}/restore", s.adminRestoreEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/validate", s.adminValidateEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/logo", s.adminUploadLogo)
 	mux.HandleFunc("GET /admin/api/events/{slug}/qr.svg", s.adminEventQR)
 	mux.HandleFunc("PUT /admin/api/events/{slug}", s.adminPublishEvent)
 	return mux
+}
+
+func (s *server) adminEventHistory(writer http.ResponseWriter, request *http.Request) {
+	history, ok := s.admin.(admincontent.HistoryContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "revision history is not available for this content store")
+		return
+	}
+	revisions, err := history.EventHistory("/" + request.PathValue("slug"))
+	if err != nil {
+		s.adminContentError(writer, "list event history", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusOK, struct {
+		Revisions []admincontent.Revision `json:"revisions"`
+	}{Revisions: revisions})
+}
+
+func (s *server) adminRestoreEvent(writer http.ResponseWriter, request *http.Request) {
+	history, ok := s.admin.(admincontent.HistoryContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "revision history is not available for this content store")
+		return
+	}
+	var payload adminRestoreEventRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Revision == "" {
+		writeAdminError(writer, http.StatusBadRequest, "revision is required")
+		return
+	}
+	eventPath := "/" + request.PathValue("slug")
+	content, revision, err := history.RestoreEvent(eventPath, request.PathValue("historyID"), payload.Revision)
+	if err != nil {
+		s.adminContentError(writer, "restore event history", err)
+		return
+	}
+	config, err := decodeAdminConfig(content)
+	if err != nil {
+		s.adminContentError(writer, "decode restored event", err)
+		return
+	}
+	publicURL, err := s.publicEventURL(request, eventPath)
+	if err != nil {
+		s.adminInternalError(writer, "build restored event URL", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusOK, adminEventResponse{
+		Path: eventPath, PublicURL: publicURL, CanIncludeLogo: config.Conference.Logo != "", YAML: string(content), Config: &config, Revision: revision,
+	})
 }
 
 func (s *server) adminDuplicateEvent(writer http.ResponseWriter, request *http.Request) {
@@ -190,6 +247,7 @@ func (s *server) adminEvents(writer http.ResponseWriter, _ *http.Request) {
 		events = append(events, adminEventSummary{Path: eventPath})
 	}
 	manager, manageable := s.admin.(admincontent.EventContent)
+	_, canUseHistory := s.admin.(admincontent.HistoryContent)
 	var revision string
 	if manageable {
 		revision, err = manager.ManifestRevision()
@@ -199,10 +257,11 @@ func (s *server) adminEvents(writer http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	writeAdminJSON(writer, http.StatusOK, struct {
-		Events    []adminEventSummary `json:"events"`
-		Revision  string              `json:"revision,omitempty"`
-		CanManage bool                `json:"can_manage"`
-	}{Events: events, Revision: revision, CanManage: manageable})
+		Events     []adminEventSummary `json:"events"`
+		Revision   string              `json:"revision,omitempty"`
+		CanManage  bool                `json:"can_manage"`
+		CanHistory bool                `json:"can_history"`
+	}{Events: events, Revision: revision, CanManage: manageable, CanHistory: canUseHistory})
 }
 
 func (s *server) adminCreateEvent(writer http.ResponseWriter, request *http.Request) {
@@ -527,6 +586,10 @@ func (s *server) adminContentError(writer http.ResponseWriter, operation string,
 		writeAdminError(writer, http.StatusConflict, "the event path or generated menu file already exists")
 	case errors.Is(err, admincontent.ErrInvalidEvent):
 		writeAdminError(writer, http.StatusUnprocessableEntity, strings.TrimPrefix(err.Error(), admincontent.ErrInvalidEvent.Error()+": "))
+	case errors.Is(err, admincontent.ErrHistoryNotFound):
+		writeAdminError(writer, http.StatusNotFound, "revision history entry not found")
+	case errors.Is(err, admincontent.ErrInvalidHistory):
+		writeAdminError(writer, http.StatusBadRequest, "invalid revision history entry")
 	case errors.Is(err, admincontent.ErrInvalidMenu):
 		writeAdminError(writer, http.StatusUnprocessableEntity, validationMessage(err))
 	case errors.Is(err, admincontent.ErrInvalidLogo):

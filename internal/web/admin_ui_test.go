@@ -40,7 +40,7 @@ func TestAdminEditorPageAndAssets(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("admin page status = %d: %s", response.Code, response.Body.String())
 	}
-	for _, expected := range []string{"Menu editor", `id="event-select"`, `id="add-event-button"`, `id="duplicate-event-button"`, `id="delete-event-button"`, `id="qr-download-link"`, `id="qr-target"`, `id="qr-target-url"`, `id="qr-logo-control"`, `id="qr-logo-option"`, `id="menu-form"`, `id="editor-tabs"`, `id="menu-preview"`, `id="preview-language"`, `id="preview-day"`, `id="validate-button"`, `id="publish-button"`, "QR Code is a registered trademark of DENSO WAVE INCORPORATED.", "/admin/static/admin.css", "/admin/static/admin.js"} {
+	for _, expected := range []string{"Menu editor", `id="event-select"`, `id="add-event-button"`, `id="duplicate-event-button"`, `id="delete-event-button"`, `id="history-button"`, `id="history-panel"`, `id="history-list"`, `id="qr-download-link"`, `id="qr-target"`, `id="qr-target-url"`, `id="qr-logo-control"`, `id="qr-logo-option"`, `id="menu-form"`, `id="editor-tabs"`, `id="menu-preview"`, `id="preview-language"`, `id="preview-day"`, `id="validate-button"`, `id="publish-button"`, "QR Code is a registered trademark of DENSO WAVE INCORPORATED.", "/admin/static/admin.css", "/admin/static/admin.js"} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("admin page missing %q", expected)
 		}

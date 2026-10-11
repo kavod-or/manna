@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	admincontent "manna/internal/admin"
 )
@@ -116,8 +118,160 @@ func TestEventAdminPublishesValidMenuAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 3 {
-		t.Fatalf("temporary file remained after publish: %#v", entries)
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".manna-") && entry.Name() != eventHistoryRoot {
+			t.Fatalf("temporary file remained after publish: %#v", entries)
+		}
+	}
+}
+
+func TestEventAdminArchivesAndRestoresPublishedMenus(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	original, revision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := []byte(testMenu("Updated Alpha") + "# published comment\n")
+	updatedRevision, err := admin.PublishEvent("/alpha", revision, updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := admin.EventHistory("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || history[0].Revision != contentRevision(original) {
+		t.Fatalf("history after publish = %#v", history)
+	}
+	archived, err := os.ReadFile(filepath.Join(contentDir, eventHistoryDirectory("alpha.yaml"), history[0].ID+".yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(archived, original) {
+		t.Fatal("history did not preserve the exact previous YAML")
+	}
+
+	restored, restoredRevision, err := admin.RestoreEvent("/alpha", history[0].ID, updatedRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored, original) || restoredRevision != contentRevision(original) {
+		t.Fatalf("restored revision = %q, content changed = %t", restoredRevision, !bytes.Equal(restored, original))
+	}
+	live, err := os.ReadFile(filepath.Join(contentDir, "alpha.yaml"))
+	if err != nil || !bytes.Equal(live, original) {
+		t.Fatalf("restored live menu = %q, %v", live, err)
+	}
+	history, err = admin.EventHistory("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("restore did not archive the outgoing version: %#v", history)
+	}
+	foundUpdated := false
+	for _, item := range history {
+		foundUpdated = foundUpdated || item.Revision == contentRevision(updated)
+	}
+	if !foundUpdated {
+		t.Fatal("outgoing version was not available for reversing the restore")
+	}
+}
+
+func TestEventAdminHistoryIsBoundedAndSkipsNoOpPublishes(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	current, revision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.PublishEvent("/alpha", revision, current); err != nil {
+		t.Fatal(err)
+	}
+	history, err := admin.EventHistory("/alpha")
+	if err != nil || len(history) != 0 {
+		t.Fatalf("no-op publish history = %#v, %v", history, err)
+	}
+	for index := 0; index < eventHistoryLimit+3; index++ {
+		content := []byte(testMenu(fmt.Sprintf("Version %02d", index)))
+		revision, err = admin.PublishEvent("/alpha", revision, content)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, err = admin.EventHistory("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != eventHistoryLimit {
+		t.Fatalf("history length = %d, want %d", len(history), eventHistoryLimit)
+	}
+	entries, err := os.ReadDir(filepath.Join(contentDir, eventHistoryDirectory("alpha.yaml")))
+	if err != nil || len(entries) != eventHistoryLimit {
+		t.Fatalf("stored history entries = %d, %v", len(entries), err)
+	}
+}
+
+func TestEventAdminRestoreRejectsInvalidMissingAndStaleHistory(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	_, revision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedRevision, err := admin.PublishEvent("/alpha", revision, []byte(testMenu("Updated")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := admin.EventHistory("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := admin.RestoreEvent("/alpha", "../alpha", updatedRevision); !errors.Is(err, admincontent.ErrInvalidHistory) {
+		t.Fatalf("invalid history ID error = %v", err)
+	}
+	missingID := newHistoryID(time.Now().UTC().Add(time.Second), []byte("missing"))
+	if _, _, err := admin.RestoreEvent("/alpha", missingID, updatedRevision); !errors.Is(err, admincontent.ErrHistoryNotFound) {
+		t.Fatalf("missing history error = %v", err)
+	}
+	if _, _, err := admin.RestoreEvent("/alpha", history[0].ID, "sha256:stale"); !errors.Is(err, admincontent.ErrRevisionStale) {
+		t.Fatalf("stale restore error = %v", err)
+	}
+	invalidID := newHistoryID(time.Now().UTC().Add(2*time.Second), []byte("days: ["))
+	historyDir := filepath.Join(contentDir, eventHistoryDirectory("alpha.yaml"))
+	if err := os.WriteFile(filepath.Join(historyDir, invalidID+".yaml"), []byte("days: ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := admin.RestoreEvent("/alpha", invalidID, updatedRevision); !errors.Is(err, admincontent.ErrInvalidMenu) {
+		t.Fatalf("invalid stored menu error = %v", err)
+	}
+	live, err := os.ReadFile(filepath.Join(contentDir, "alpha.yaml"))
+	if err != nil || contentRevision(live) != updatedRevision {
+		t.Fatal("rejected restore changed the live menu")
+	}
+}
+
+func TestEventAdminDeleteRemovesOnlyItsHistory(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	for _, eventPath := range []string{"/alpha", "/beta"} {
+		_, revision, err := admin.ReadEvent(eventPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.PublishEvent(eventPath, revision, []byte(testMenu("Updated "+eventPath))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifestRevision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DeleteEvent("/alpha", "/alpha", manifestRevision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, eventHistoryDirectory("alpha.yaml"))); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("deleted event history remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, eventHistoryDirectory("beta.yaml"))); err != nil {
+		t.Fatalf("other event history was removed: %v", err)
 	}
 }
 

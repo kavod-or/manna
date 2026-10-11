@@ -48,7 +48,8 @@ function adminContext(replies, promptReplies = []) {
   const elements = {
     'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
     'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
-    'reload-button': element(), 'add-event-button': element(), 'duplicate-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
+    'reload-button': element(), 'history-button': element(), 'history-panel': element({hidden: true}), 'history-close-button': element(), 'history-list': element(),
+    'add-event-button': element(), 'duplicate-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
     'qr-download-link': element(),
     'qr-target': element({hidden: true}), 'qr-target-url': element(),
     'qr-logo-control': element({hidden: true}), 'qr-logo-option': element({checked: false}),
@@ -163,6 +164,36 @@ test('event duplication copies the published event and selects the result', asyn
   assert.deepEqual(JSON.parse(request.options.body), {path: '/alpha-copy', revision: 'manifest-1'});
   assert.equal(setup.hook.state.path, '/alpha-copy');
   assert.match(setup.elements['editor-status'].textContent, /duplicated from the published \/alpha/i);
+});
+
+test('revision history lists and restores a previous published menu', async () => {
+  const restored = config();
+  restored.conference.name.en = 'Earlier event';
+  const revision = {id: '20261011T120000.000000000Z-0123456789abcdef', revision: 'sha256:0123456789abcdef', archived_at: '2026-10-11T12:00:00Z'};
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}], revision: 'manifest-1', can_manage: true, can_history: true}),
+    response(200, {path: '/alpha', config: config(), yaml: 'current menu', revision: 'rev-current'}),
+  ]);
+  await setup.hook.ready;
+
+  setup.replies.push(response(200, {revisions: [revision]}));
+  await setup.hook.openHistory();
+  assert.equal(setup.elements['history-panel'].hidden, false);
+  assert.match(setup.elements['history-list'].innerHTML, /Restore/);
+
+  setup.replies.push(
+    response(200, {path: '/alpha', public_url: 'https://manna.example/alpha', config: restored, yaml: 'earlier menu', revision: 'rev-restored'}),
+    response(200, {revisions: [revision]}),
+  );
+  await setup.hook.restoreEvent(revision.id, '10/11/2026, 12:00:00 PM');
+  const request = setup.requests.find((entry) => entry.url.includes(`/history/${revision.id}/restore`));
+  assert.equal(request.options.method, 'POST');
+  assert.equal(request.options.headers['X-Manna-Admin'], '1');
+  assert.deepEqual(JSON.parse(request.options.body), {revision: 'rev-current'});
+  assert.equal(setup.hook.state.revision, 'rev-restored');
+  assert.equal(setup.hook.state.config.conference.name.en, 'Earlier event');
+  assert.equal(setup.hook.isDirty(), false);
+  assert.match(setup.elements['editor-status'].textContent, /now published/i);
 });
 
 test('QR download stays disabled when no event exists', async () => {

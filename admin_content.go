@@ -29,6 +29,13 @@ type eventAdmin struct {
 var _ admincontent.Content = (*eventAdmin)(nil)
 var _ admincontent.LogoContent = (*eventAdmin)(nil)
 var _ admincontent.EventContent = (*eventAdmin)(nil)
+var _ admincontent.HistoryContent = (*eventAdmin)(nil)
+
+const (
+	eventHistoryRoot  = ".manna-history"
+	eventHistoryLimit = 10
+	historyTimeLayout = "20060102T150405.000000000Z"
+)
 
 const blankEventMenu = `conference:
   languages: [de, en]
@@ -349,6 +356,11 @@ func (admin *eventAdmin) DeleteEvent(eventPath, confirmation, expectedManifestRe
 			return "", fmt.Errorf("remove event logo after route removal: %w", err)
 		}
 	}
+	if historyWriter, ok := admin.registry.content.(interface{ removeDirectory(string) error }); ok {
+		if err := historyWriter.removeDirectory(eventHistoryDirectory(removed.Menu)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("remove event history after route removal: %w", err)
+		}
+	}
 	return contentRevision(updated), nil
 }
 
@@ -490,31 +502,158 @@ func (admin *eventAdmin) PublishEvent(eventPath, expectedRevision string, conten
 	if err != nil {
 		return "", err
 	}
+	return admin.publishEventLocked(route.menuPath, expectedRevision, content)
+}
+
+func (admin *eventAdmin) EventHistory(eventPath string) ([]admincontent.Revision, error) {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+
+	route, err := admin.route(eventPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := admin.pruneEventHistory(route.menuPath); err != nil {
+		return nil, err
+	}
+	return admin.eventHistory(route.menuPath)
+}
+
+func (admin *eventAdmin) RestoreEvent(eventPath, historyID, expectedCurrentRevision string) ([]byte, string, error) {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+
+	route, err := admin.route(eventPath)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := parseHistoryID(historyID); err != nil {
+		return nil, "", err
+	}
+	historyPath := path.Join(eventHistoryDirectory(route.menuPath), historyID+".yaml")
+	content, err := fs.ReadFile(admin.registry.content, historyPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, "", admincontent.ErrHistoryNotFound
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("read event history: %w", err)
+	}
+	revision, err := admin.publishEventLocked(route.menuPath, expectedCurrentRevision, content)
+	if err != nil {
+		return nil, "", err
+	}
+	return content, revision, nil
+}
+
+func (admin *eventAdmin) publishEventLocked(menuPath, expectedRevision string, content []byte) (string, error) {
 	if err := admin.ValidateMenu(content); err != nil {
 		return "", err
 	}
-	current, err := fs.ReadFile(admin.registry.content, route.menuPath)
+	current, err := fs.ReadFile(admin.registry.content, menuPath)
 	if err != nil {
 		return "", fmt.Errorf("read current admin event: %w", err)
 	}
 	if contentRevision(current) != expectedRevision {
 		return "", admincontent.ErrRevisionStale
 	}
-
 	newRevision := contentRevision(content)
 	if bytes.Equal(current, content) {
 		return newRevision, nil
 	}
 	writer, ok := admin.registry.content.(interface {
 		writeFileAtomic(string, string, []byte) error
+		writeHistoryFile(string, []byte) error
+		removeFileRevision(string, string) error
 	})
 	if !ok {
 		return "", admincontent.ErrContentReadOnly
 	}
-	if err := writer.writeFileAtomic(route.menuPath, expectedRevision, content); err != nil {
+	historyPath := path.Join(eventHistoryDirectory(menuPath), newHistoryID(time.Now().UTC(), current)+".yaml")
+	if err := writer.writeHistoryFile(historyPath, current); err != nil {
+		return "", fmt.Errorf("archive current event menu: %w", err)
+	}
+	if err := writer.writeFileAtomic(menuPath, expectedRevision, content); err != nil {
+		_ = writer.removeFileRevision(historyPath, contentRevision(current))
 		return "", fmt.Errorf("publish admin event: %w", err)
 	}
+	// Publication is already complete. Retention cleanup is best-effort and is
+	// retried whenever history is listed or another version is published.
+	_ = admin.pruneEventHistory(menuPath)
 	return newRevision, nil
+}
+
+func eventHistoryDirectory(menuPath string) string {
+	base := strings.TrimSuffix(path.Base(menuPath), path.Ext(menuPath))
+	digest := sha256.Sum256([]byte(menuPath))
+	return path.Join(eventHistoryRoot, base+"-"+hex.EncodeToString(digest[:8]))
+}
+
+func newHistoryID(archivedAt time.Time, content []byte) string {
+	digest := sha256.Sum256(content)
+	return archivedAt.UTC().Format(historyTimeLayout) + "-" + hex.EncodeToString(digest[:8])
+}
+
+func parseHistoryID(id string) (time.Time, error) {
+	const digestLength = 16
+	separator := len(id) - digestLength - 1
+	if separator <= 0 || id[separator] != '-' {
+		return time.Time{}, admincontent.ErrInvalidHistory
+	}
+	archivedAt, err := time.Parse(historyTimeLayout, id[:separator])
+	if err != nil {
+		return time.Time{}, admincontent.ErrInvalidHistory
+	}
+	if _, err := hex.DecodeString(id[separator+1:]); err != nil {
+		return time.Time{}, admincontent.ErrInvalidHistory
+	}
+	return archivedAt, nil
+}
+
+func (admin *eventAdmin) eventHistory(menuPath string) ([]admincontent.Revision, error) {
+	directory := eventHistoryDirectory(menuPath)
+	entries, err := fs.ReadDir(admin.registry.content, directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []admincontent.Revision{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list event history: %w", err)
+	}
+	revisions := make([]admincontent.Revision, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || path.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".yaml")
+		archivedAt, err := parseHistoryID(id)
+		if err != nil {
+			continue
+		}
+		content, err := fs.ReadFile(admin.registry.content, path.Join(directory, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read event history: %w", err)
+		}
+		revisions = append(revisions, admincontent.Revision{ID: id, Revision: contentRevision(content), ArchivedAt: archivedAt})
+	}
+	sort.Slice(revisions, func(left, right int) bool { return revisions[left].ArchivedAt.After(revisions[right].ArchivedAt) })
+	return revisions, nil
+}
+
+func (admin *eventAdmin) pruneEventHistory(menuPath string) error {
+	revisions, err := admin.eventHistory(menuPath)
+	if err != nil || len(revisions) <= eventHistoryLimit {
+		return err
+	}
+	writer, ok := admin.registry.content.(interface{ removeFileRevision(string, string) error })
+	if !ok {
+		return admincontent.ErrContentReadOnly
+	}
+	directory := eventHistoryDirectory(menuPath)
+	for _, revision := range revisions[eventHistoryLimit:] {
+		if err := writer.removeFileRevision(path.Join(directory, revision.ID+".yaml"), revision.Revision); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("prune event history: %w", err)
+		}
+	}
+	return nil
 }
 
 func (admin *eventAdmin) route(eventPath string) (eventRoute, error) {
@@ -662,6 +801,23 @@ func (root *rootedFS) writeNewFile(name string, content []byte) error {
 	}
 	keep = true
 	return nil
+}
+
+func (root *rootedFS) writeHistoryFile(name string, content []byte) error {
+	if !fs.ValidPath(name) || !strings.HasPrefix(name, eventHistoryRoot+"/") || strings.Contains(name, `\`) {
+		return fmt.Errorf("invalid history path %q", name)
+	}
+	if err := root.root.MkdirAll(path.Dir(name), 0o700); err != nil {
+		return err
+	}
+	return root.writeNewFile(name, content)
+}
+
+func (root *rootedFS) removeDirectory(name string) error {
+	if !fs.ValidPath(name) || !strings.HasPrefix(name, eventHistoryRoot+"/") || strings.Contains(name, `\`) {
+		return fmt.Errorf("invalid history directory %q", name)
+	}
+	return root.root.RemoveAll(name)
 }
 
 func (root *rootedFS) removeFileRevision(name, expectedRevision string) error {

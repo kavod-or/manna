@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	admincontent "manna/internal/admin"
 	"manna/internal/menu"
@@ -122,6 +123,37 @@ func TestAdminAPIDuplicatesPublishedEvent(t *testing.T) {
 	}
 }
 
+func TestAdminAPIListsAndRestoresEventHistory(t *testing.T) {
+	content := newStubAdminContent()
+	if _, err := content.CreateEvent("/source", "manifest-1"); err != nil {
+		t.Fatal(err)
+	}
+	content.history["history-1"] = content.files["/source"]
+	handler := newAdminAPITestServer(t, content)
+
+	response := serveAdminAPI(handler, http.MethodGet, "/admin/api/events/source/history", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"history-1"`) {
+		t.Fatalf("history response = %d: %s", response.Code, response.Body.String())
+	}
+	response = serveAdminAPI(handler, http.MethodPost, "/admin/api/events/source/history/history-1/restore", `{"revision":"rev-created"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("restore response = %d: %s", response.Code, response.Body.String())
+	}
+	var restored adminEventResponse
+	decodeTestJSON(t, response, &restored)
+	if restored.Path != "/source" || restored.Revision != "rev-restored" || restored.Config == nil {
+		t.Fatalf("restored event = %#v", restored)
+	}
+	response = serveAdminAPI(handler, http.MethodPost, "/admin/api/events/source/history/missing/restore", `{"revision":"rev-restored"}`)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing history response = %d: %s", response.Code, response.Body.String())
+	}
+	response = serveAdminAPI(handler, http.MethodPost, "/admin/api/events/source/history/history-1/restore", `{"revision":"stale"}`)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("stale restore response = %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAdminAPIValidatesAndPublishes(t *testing.T) {
 	content := newStubAdminContent()
 	handler := newAdminAPITestServer(t, content)
@@ -174,6 +206,8 @@ func TestAdminAPIRejectsInvalidRequests(t *testing.T) {
 		{name: "unknown JSON field", method: http.MethodPost, path: "/admin/api/events/alpha/validate", body: `{"yaml":"ok","extra":true}`, want: http.StatusBadRequest},
 		{name: "multiple JSON values", method: http.MethodPost, path: "/admin/api/events/alpha/validate", body: `{"yaml":"ok"} {}`, want: http.StatusBadRequest},
 		{name: "missing revision", method: http.MethodPut, path: "/admin/api/events/alpha", body: `{"yaml":"ok"}`, want: http.StatusBadRequest},
+		{name: "restore missing revision", method: http.MethodPost, path: "/admin/api/events/alpha/history/history-1/restore", body: `{}`, want: http.StatusBadRequest},
+		{name: "restore unknown field", method: http.MethodPost, path: "/admin/api/events/alpha/history/history-1/restore", body: `{"revision":"rev-alpha","extra":true}`, want: http.StatusBadRequest},
 		{name: "oversized body", method: http.MethodPost, path: "/admin/api/events/alpha/validate", body: `{"yaml":"` + strings.Repeat("x", maxAdminRequestSize) + `"}`, want: http.StatusBadRequest},
 		{name: "missing content type", method: http.MethodPost, path: "/admin/api/events/alpha/validate", body: `{"yaml":"ok"}`, contentType: "none", want: http.StatusUnsupportedMediaType},
 		{name: "wrong content type", method: http.MethodPut, path: "/admin/api/events/alpha", body: `{"yaml":"ok","revision":"rev-alpha"}`, contentType: "text/plain", want: http.StatusUnsupportedMediaType},
@@ -359,6 +393,7 @@ type stubAdminContent struct {
 	logoPath         string
 	logoData         []byte
 	manifestRevision string
+	history          map[string]string
 }
 
 func (content *stubAdminContent) UploadLogo(eventPath, extension string, data []byte) (string, error) {
@@ -375,7 +410,35 @@ func newStubAdminContent() *stubAdminContent {
 		files:            map[string]string{"/alpha": "conference: alpha", "/beta": "conference: beta"},
 		revisions:        map[string]string{"/alpha": "rev-alpha", "/beta": "rev-beta"},
 		manifestRevision: "manifest-1",
+		history:          make(map[string]string),
 	}
+}
+
+func (content *stubAdminContent) EventHistory(eventPath string) ([]admincontent.Revision, error) {
+	if _, ok := content.files[eventPath]; !ok {
+		return nil, admincontent.ErrEventNotFound
+	}
+	revisions := make([]admincontent.Revision, 0, len(content.history))
+	for id := range content.history {
+		revisions = append(revisions, admincontent.Revision{ID: id, Revision: "rev-history", ArchivedAt: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)})
+	}
+	return revisions, nil
+}
+
+func (content *stubAdminContent) RestoreEvent(eventPath, historyID, expectedRevision string) ([]byte, string, error) {
+	if _, ok := content.files[eventPath]; !ok {
+		return nil, "", admincontent.ErrEventNotFound
+	}
+	if content.revisions[eventPath] != expectedRevision {
+		return nil, "", admincontent.ErrRevisionStale
+	}
+	historical, ok := content.history[historyID]
+	if !ok {
+		return nil, "", admincontent.ErrHistoryNotFound
+	}
+	content.files[eventPath] = historical
+	content.revisions[eventPath] = "rev-restored"
+	return []byte(historical), "rev-restored", nil
 }
 
 func (content *stubAdminContent) ManifestRevision() (string, error) {
