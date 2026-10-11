@@ -54,6 +54,11 @@ type adminCreateEventRequest struct {
 	Revision string `json:"revision"`
 }
 
+type adminDuplicateEventRequest struct {
+	Path     string `json:"path"`
+	Revision string `json:"revision"`
+}
+
 type adminDeleteEventRequest struct {
 	Revision     string `json:"revision"`
 	Confirmation string `json:"confirmation"`
@@ -71,11 +76,52 @@ func (s *server) adminHandler() http.Handler {
 	mux.HandleFunc("POST /admin/api/events", s.adminCreateEvent)
 	mux.HandleFunc("GET /admin/api/events/{slug}", s.adminReadEvent)
 	mux.HandleFunc("DELETE /admin/api/events/{slug}", s.adminDeleteEvent)
+	mux.HandleFunc("POST /admin/api/events/{slug}/duplicate", s.adminDuplicateEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/validate", s.adminValidateEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/logo", s.adminUploadLogo)
 	mux.HandleFunc("GET /admin/api/events/{slug}/qr.svg", s.adminEventQR)
 	mux.HandleFunc("PUT /admin/api/events/{slug}", s.adminPublishEvent)
 	return mux
+}
+
+func (s *server) adminDuplicateEvent(writer http.ResponseWriter, request *http.Request) {
+	manager, ok := s.admin.(admincontent.EventContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "event management is not available for this content store")
+		return
+	}
+	var payload adminDuplicateEventRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Path == "" || payload.Revision == "" {
+		writeAdminError(writer, http.StatusBadRequest, "path and revision are required")
+		return
+	}
+	sourcePath := "/" + request.PathValue("slug")
+	manifestRevision, err := manager.DuplicateEvent(sourcePath, payload.Path, payload.Revision)
+	if err != nil {
+		s.adminContentError(writer, "duplicate event", err)
+		return
+	}
+	content, revision, err := s.admin.ReadEvent(payload.Path)
+	if err != nil {
+		s.adminContentError(writer, "read duplicated event", err)
+		return
+	}
+	config, err := decodeAdminConfig(content)
+	if err != nil {
+		s.adminContentError(writer, "decode duplicated event", err)
+		return
+	}
+	publicURL, err := s.publicEventURL(request, payload.Path)
+	if err != nil {
+		s.adminInternalError(writer, "build duplicated event URL", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusCreated, adminEventResponse{
+		Path: payload.Path, PublicURL: publicURL, CanIncludeLogo: config.Conference.Logo != "", YAML: string(content), Config: &config, Revision: revision, ManifestRevision: manifestRevision,
+	})
 }
 
 func (s *server) adminUploadLogo(writer http.ResponseWriter, request *http.Request) {

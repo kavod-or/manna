@@ -48,7 +48,7 @@ function adminContext(replies, promptReplies = []) {
   const elements = {
     'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
     'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
-    'reload-button': element(), 'add-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
+    'reload-button': element(), 'add-event-button': element(), 'duplicate-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
     'qr-download-link': element(),
     'qr-target': element({hidden: true}), 'qr-target-url': element(),
     'qr-logo-control': element({hidden: true}), 'qr-logo-option': element({checked: false}),
@@ -140,6 +140,29 @@ test('event removal requires the exact path before sending a request', async () 
   await setup.hook.deleteEvent();
   assert.equal(setup.requests.length, requestsBefore);
   assert.match(setup.elements['editor-status'].textContent, /must exactly match/);
+});
+
+test('event duplication copies the published event and selects the result', async () => {
+  const duplicated = config();
+  duplicated.conference.name.en = 'Alpha copy';
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}], revision: 'manifest-1', can_manage: true}),
+    response(200, {path: '/alpha', config: config(), yaml: 'alpha', revision: 'rev-alpha'}),
+  ], ['/alpha-copy']);
+  await setup.hook.ready;
+
+  setup.replies.push(
+    response(201, {path: '/alpha-copy', config: duplicated, yaml: 'alpha copy', revision: 'rev-copy', manifest_revision: 'manifest-2'}),
+    response(200, {events: [{path: '/alpha'}, {path: '/alpha-copy'}], revision: 'manifest-2', can_manage: true}),
+    response(200, {path: '/alpha-copy', config: duplicated, yaml: 'alpha copy', revision: 'rev-copy'}),
+  );
+  await setup.hook.duplicateEvent();
+  const request = setup.requests.find((entry) => entry.url === '/admin/api/events/alpha/duplicate');
+  assert.equal(request.options.method, 'POST');
+  assert.equal(request.options.headers['X-Manna-Admin'], '1');
+  assert.deepEqual(JSON.parse(request.options.body), {path: '/alpha-copy', revision: 'manifest-1'});
+  assert.equal(setup.hook.state.path, '/alpha-copy');
+  assert.match(setup.elements['editor-status'].textContent, /duplicated from the published \/alpha/i);
 });
 
 test('QR download stays disabled when no event exists', async () => {

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"os"
@@ -201,6 +204,111 @@ func TestEventAdminCreateRejectsUnsafePathsCollisionsAndStaleManifest(t *testing
 	}
 	if _, err := os.Stat(filepath.Join(contentDir, "new-event.yaml")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("stale create wrote a menu: %v", err)
+	}
+}
+
+func TestEventAdminDuplicatesPublishedMenu(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	source := []byte(testMenu("Alpha") + "# keep this editor comment\n")
+	if err := os.WriteFile(filepath.Join(contentDir, "alpha.yaml"), source, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRevision, err := admin.DuplicateEvent("/alpha", "/alpha-copy", revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicated, err := os.ReadFile(filepath.Join(contentDir, "alpha-copy.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(duplicated, source) {
+		t.Fatal("duplication without an owned logo did not preserve the exact published YAML")
+	}
+	manifest, err := os.ReadFile(filepath.Join(contentDir, eventManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRevision != contentRevision(manifest) || !strings.Contains(string(manifest), "path: /alpha-copy") || !strings.Contains(string(manifest), "menu: alpha-copy.yaml") {
+		t.Fatalf("duplicated manifest = %s", manifest)
+	}
+	if _, _, err := admin.ReadEvent("/alpha-copy"); err != nil {
+		t.Fatalf("duplicated event was not immediately available: %v", err)
+	}
+}
+
+func TestEventAdminDuplicatesOwnedLogoIndependently(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	sourceLogo := "alpha-logo-0123456789abcdef.png"
+	source := strings.Replace(testMenu("Alpha"), "conference:\n", "# conference comment\nconference:\n  logo: "+sourceLogo+" # logo comment\n", 1)
+	if err := os.WriteFile(filepath.Join(contentDir, "alpha.yaml"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logo := []byte("published logo bytes")
+	if err := os.WriteFile(filepath.Join(contentDir, sourceLogo), logo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DuplicateEvent("/alpha", "/alpha-copy", revision); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(logo)
+	targetLogo := "alpha-copy-logo-" + hex.EncodeToString(digest[:8]) + ".png"
+	duplicated, err := os.ReadFile(filepath.Join(contentDir, "alpha-copy.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(duplicated), "logo: "+targetLogo) || !strings.Contains(string(duplicated), "# conference comment") || !strings.Contains(string(duplicated), "# logo comment") {
+		t.Fatalf("duplicated menu did not update its logo while preserving comments:\n%s", duplicated)
+	}
+	writtenLogo, err := os.ReadFile(filepath.Join(contentDir, targetLogo))
+	if err != nil || !bytes.Equal(writtenLogo, logo) {
+		t.Fatalf("duplicated logo = %q, %v", writtenLogo, err)
+	}
+
+	revision, err = admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DeleteEvent("/alpha", "/alpha", revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, targetLogo)); err != nil {
+		t.Fatal("deleting the source removed the duplicate's logo")
+	}
+}
+
+func TestEventAdminDuplicateRejectsMissingCollisionAndStaleManifest(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	revision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, source, target, revision string
+		want                           error
+	}{
+		{name: "missing source", source: "/missing", target: "/copy", revision: revision, want: admincontent.ErrEventNotFound},
+		{name: "existing target", source: "/alpha", target: "/beta", revision: revision, want: admincontent.ErrEventExists},
+		{name: "same target", source: "/alpha", target: "/alpha", revision: revision, want: admincontent.ErrInvalidEvent},
+		{name: "unsafe target", source: "/alpha", target: "/../copy", revision: revision, want: admincontent.ErrInvalidEvent},
+		{name: "stale manifest", source: "/alpha", target: "/copy", revision: "sha256:stale", want: admincontent.ErrManifestStale},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := admin.DuplicateEvent(test.source, test.target, test.revision); !errors.Is(err, test.want) {
+				t.Fatalf("DuplicateEvent() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, "copy.yaml")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("rejected duplication wrote a menu: %v", err)
 	}
 }
 

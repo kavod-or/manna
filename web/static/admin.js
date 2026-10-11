@@ -2,6 +2,7 @@
   const elements = {
     eventSelect: document.getElementById('event-select'),
     addEvent: document.getElementById('add-event-button'),
+    duplicateEvent: document.getElementById('duplicate-event-button'),
     deleteEvent: document.getElementById('delete-event-button'),
     form: document.getElementById('menu-form'),
     tabs: document.getElementById('editor-tabs'),
@@ -59,6 +60,7 @@
     const loaded = Boolean(state.path && state.revision && (state.config || isYAML()));
     elements.eventSelect.disabled = state.busy || elements.eventSelect.options.length === 0;
     elements.addEvent.disabled = state.busy || !state.canManageEvents || !state.manifestRevision;
+    elements.duplicateEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
     elements.deleteEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
     elements.validate.disabled = state.busy || !loaded;
     elements.publish.disabled = state.busy || !loaded || !isDirty();
@@ -226,6 +228,37 @@
       setStatus(`${eventPath} and its event-owned files were permanently removed.`, 'success');
     } catch (error) {
       setStatus(error.status === 409 ? 'The event list changed. Reload before removing this event.' : (error.message || 'Could not remove the event.'), error.status === 409 ? 'warning' : 'error');
+    } finally { setBusy(false); }
+  }
+
+  async function duplicateEvent() {
+    if (state.busy || !state.path || !state.canManageEvents) return;
+    if (isDirty() && !window.confirm('Discard your unpublished changes? Only the published event will be duplicated.')) return;
+    const sourcePath = state.path;
+    const suggestion = `${sourcePath}-copy`;
+    const entered = window.prompt(`Enter the new public event path. The published version of ${sourcePath} will be copied.`, suggestion);
+    if (entered == null) return;
+    const targetPath = entered.trim();
+    if (!/^\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(targetPath)) {
+      setStatus('Use a path such as /team-day with lowercase letters, numbers, and single hyphens.', 'error');
+      return;
+    }
+    if (targetPath === sourcePath) {
+      setStatus('Choose a different path for the duplicated event.', 'error');
+      return;
+    }
+    if (!window.confirm(`Duplicate the published ${sourcePath} event as ${targetPath}?`)) return;
+    setBusy(true); setStatus(`Duplicating ${sourcePath} as ${targetPath}…`);
+    try {
+      const body = await requestJSON(`/admin/api/events/${eventSlug(sourcePath)}/duplicate`, {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
+        body: JSON.stringify({path: targetPath, revision: state.manifestRevision}),
+      });
+      state.manifestRevision = body.manifest_revision;
+      await loadEvents(targetPath);
+      setStatus(`${targetPath} was duplicated from the published ${sourcePath} event.`, 'success');
+    } catch (error) {
+      setStatus(error.status === 409 ? 'The event list changed or that path already exists. Reload and try again.' : (error.message || 'Could not duplicate the event.'), error.status === 409 ? 'warning' : 'error');
     } finally { setBusy(false); }
   }
 
@@ -726,6 +759,7 @@
 
   elements.eventSelect.addEventListener('change', () => loadEvent(elements.eventSelect.value));
   elements.addEvent.addEventListener('click', addEvent);
+  elements.duplicateEvent.addEventListener('click', duplicateEvent);
   elements.deleteEvent.addEventListener('click', deleteEvent);
   elements.reload.addEventListener('click', () => loadEvent(state.path));
   elements.validate.addEventListener('click', validateMenu);
@@ -757,5 +791,5 @@
 
   updatePublicLink();
   const ready = loadEvents();
-  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, deleteEvent, addAt, removeAt, updateField, render, flushPreview});
+  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, duplicateEvent, deleteEvent, addAt, removeAt, updateField, render, flushPreview});
 })();

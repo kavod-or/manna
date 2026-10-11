@@ -92,6 +92,36 @@ func TestAdminAPICreatesAndDeletesEventsWithManifestRevision(t *testing.T) {
 	}
 }
 
+func TestAdminAPIDuplicatesPublishedEvent(t *testing.T) {
+	content := newStubAdminContent()
+	if _, err := content.CreateEvent("/source", "manifest-1"); err != nil {
+		t.Fatal(err)
+	}
+	handler := newAdminAPITestServer(t, content)
+
+	response := serveAdminAPI(handler, http.MethodPost, "/admin/api/events/source/duplicate", `{"path":"/source-copy","revision":"manifest-2"}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("duplicate status = %d: %s", response.Code, response.Body.String())
+	}
+	var duplicated adminEventResponse
+	decodeTestJSON(t, response, &duplicated)
+	if duplicated.Path != "/source-copy" || duplicated.ManifestRevision != "manifest-duplicated" || duplicated.Revision != "rev-duplicated" || duplicated.Config == nil {
+		t.Fatalf("duplicated event = %#v", duplicated)
+	}
+	if content.files["/source-copy"] != content.files["/source"] {
+		t.Fatal("API did not duplicate the published source content")
+	}
+
+	response = serveAdminAPI(handler, http.MethodPost, "/admin/api/events/missing/duplicate", `{"path":"/copy","revision":"manifest-duplicated"}`)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing source status = %d: %s", response.Code, response.Body.String())
+	}
+	response = serveAdminAPI(handler, http.MethodPost, "/admin/api/events/alpha/duplicate", `{"path":"/copy","revision":"manifest-stale"}`)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("stale duplicate status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAdminAPIValidatesAndPublishes(t *testing.T) {
 	content := newStubAdminContent()
 	handler := newAdminAPITestServer(t, content)
@@ -370,6 +400,23 @@ func (content *stubAdminContent) CreateEvent(eventPath, expectedRevision string)
 	content.files[eventPath] = string(encoded)
 	content.revisions[eventPath] = "rev-created"
 	content.manifestRevision = "manifest-2"
+	return content.manifestRevision, nil
+}
+
+func (content *stubAdminContent) DuplicateEvent(sourcePath, targetPath, expectedRevision string) (string, error) {
+	if expectedRevision != content.manifestRevision {
+		return "", admincontent.ErrManifestStale
+	}
+	if _, exists := content.files[targetPath]; exists {
+		return "", admincontent.ErrEventExists
+	}
+	source, exists := content.files[sourcePath]
+	if !exists {
+		return "", admincontent.ErrEventNotFound
+	}
+	content.files[targetPath] = source
+	content.revisions[targetPath] = "rev-duplicated"
+	content.manifestRevision = "manifest-duplicated"
 	return content.manifestRevision, nil
 }
 

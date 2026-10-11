@@ -132,6 +132,151 @@ func (admin *eventAdmin) CreateEvent(eventPath, expectedManifestRevision string)
 	return contentRevision(updated), nil
 }
 
+func (admin *eventAdmin) DuplicateEvent(sourcePath, targetPath, expectedManifestRevision string) (string, error) {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+
+	if err := validateEventPath(sourcePath); err != nil {
+		return "", fmt.Errorf("%w: invalid source path: %v", admincontent.ErrInvalidEvent, err)
+	}
+	if err := validateEventPath(targetPath); err != nil {
+		return "", fmt.Errorf("%w: invalid target path: %v", admincontent.ErrInvalidEvent, err)
+	}
+	if sourcePath == targetPath {
+		return "", fmt.Errorf("%w: source and target paths must differ", admincontent.ErrInvalidEvent)
+	}
+	entries, manifest, err := admin.manifest()
+	if err != nil {
+		return "", err
+	}
+	if contentRevision(manifest) != expectedManifestRevision {
+		return "", admincontent.ErrManifestStale
+	}
+
+	var source eventEntry
+	targetMenuPath := strings.TrimPrefix(targetPath, "/") + ".yaml"
+	for _, entry := range entries {
+		if entry.Path == sourcePath {
+			source = entry
+		}
+		if entry.Path == targetPath || entry.Menu == targetMenuPath {
+			return "", admincontent.ErrEventExists
+		}
+	}
+	if source.Path == "" {
+		return "", admincontent.ErrEventNotFound
+	}
+
+	menuContent, err := fs.ReadFile(admin.registry.content, source.Menu)
+	if err != nil {
+		return "", fmt.Errorf("read source event menu: %w", err)
+	}
+	config, err := menu.Decode(bytes.NewReader(menuContent))
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", admincontent.ErrInvalidMenu, err)
+	}
+
+	writer, ok := admin.registry.content.(interface {
+		writeNewFile(string, []byte) error
+		writeFileAtomic(string, string, []byte) error
+		removeFileRevision(string, string) error
+	})
+	if !ok {
+		return "", admincontent.ErrContentReadOnly
+	}
+
+	var logoPath string
+	var logoContent []byte
+	if config.Conference.Logo != "" && isUploadedEventLogoPath(source.Menu, config.Conference.Logo) {
+		logoContent, err = fs.ReadFile(admin.registry.content, config.Conference.Logo)
+		if err != nil {
+			return "", fmt.Errorf("read source event logo: %w", err)
+		}
+		digest := sha256.Sum256(logoContent)
+		base := strings.TrimSuffix(path.Base(targetMenuPath), path.Ext(targetMenuPath))
+		logoPath = path.Join(path.Dir(targetMenuPath), base+"-logo-"+hex.EncodeToString(digest[:8])+strings.ToLower(path.Ext(config.Conference.Logo)))
+		menuContent, err = replaceMenuLogo(menuContent, logoPath)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := admin.ValidateMenu(menuContent); err != nil {
+		return "", err
+	}
+
+	if logoPath != "" {
+		if err := writer.writeNewFile(logoPath, logoContent); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return "", admincontent.ErrEventExists
+			}
+			return "", fmt.Errorf("create duplicated event logo: %w", err)
+		}
+	}
+	rollbackLogo := func() {
+		if logoPath != "" {
+			_ = writer.removeFileRevision(logoPath, contentRevision(logoContent))
+		}
+	}
+	if err := writer.writeNewFile(targetMenuPath, menuContent); err != nil {
+		rollbackLogo()
+		if errors.Is(err, fs.ErrExist) {
+			return "", admincontent.ErrEventExists
+		}
+		return "", fmt.Errorf("create duplicated event menu: %w", err)
+	}
+	rollbackFiles := func() {
+		_ = writer.removeFileRevision(targetMenuPath, contentRevision(menuContent))
+		rollbackLogo()
+	}
+
+	entries = append(entries, eventEntry{Path: targetPath, Menu: targetMenuPath})
+	updated, err := encodeEventManifest(entries)
+	if err != nil {
+		rollbackFiles()
+		return "", err
+	}
+	if err := writer.writeFileAtomic(eventManifestFile, expectedManifestRevision, updated); err != nil {
+		rollbackFiles()
+		return "", fmt.Errorf("update event manifest: %w", err)
+	}
+	admin.invalidateRegistry()
+	return contentRevision(updated), nil
+}
+
+func replaceMenuLogo(content []byte, logoPath string) ([]byte, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal(content, &document); err != nil {
+		return nil, fmt.Errorf("%w: decode menu for logo duplication: %v", admincontent.ErrInvalidMenu, err)
+	}
+	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%w: menu root must be a mapping", admincontent.ErrInvalidMenu)
+	}
+	root := document.Content[0]
+	for index := 0; index+1 < len(root.Content); index += 2 {
+		if root.Content[index].Value != "conference" || root.Content[index+1].Kind != yaml.MappingNode {
+			continue
+		}
+		conference := root.Content[index+1]
+		for field := 0; field+1 < len(conference.Content); field += 2 {
+			if conference.Content[field].Value == "logo" {
+				conference.Content[field+1].Value = logoPath
+				conference.Content[field+1].Tag = "!!str"
+				var output bytes.Buffer
+				encoder := yaml.NewEncoder(&output)
+				encoder.SetIndent(2)
+				if err := encoder.Encode(&document); err != nil {
+					return nil, fmt.Errorf("%w: encode duplicated menu: %v", admincontent.ErrInvalidMenu, err)
+				}
+				if err := encoder.Close(); err != nil {
+					return nil, fmt.Errorf("%w: encode duplicated menu: %v", admincontent.ErrInvalidMenu, err)
+				}
+				return output.Bytes(), nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: source event logo field is missing", admincontent.ErrInvalidMenu)
+}
+
 func (admin *eventAdmin) DeleteEvent(eventPath, confirmation, expectedManifestRevision string) (string, error) {
 	admin.publishMu.Lock()
 	defer admin.publishMu.Unlock()

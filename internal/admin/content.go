@@ -34,5 +34,6 @@ type LogoContent interface {
 type EventContent interface {
 	ManifestRevision() (revision string, err error)
 	CreateEvent(eventPath, expectedManifestRevision string) (newManifestRevision string, err error)
+	DuplicateEvent(sourcePath, targetPath, expectedManifestRevision string) (newManifestRevision string, err error)
 	DeleteEvent(eventPath, confirmation, expectedManifestRevision string) (newManifestRevision string, err error)
 }
