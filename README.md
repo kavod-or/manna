@@ -1,66 +1,53 @@
 # Manna
 
-Manna is a self-hosted catering guide for conferences and events. Guests open an event-specific URL—typically from a QR code—to see the current schedule, meals, food trucks, drinks, snacks, prices, availability, and food declarations in their preferred language.
+Manna is a self-hosted, multilingual catering guide for conferences and events. Organizers manage menus in a browser; guests open an event URL or QR code to see the current schedule, food, prices, availability, and declarations.
 
-Organizers manage events and menus in a browser-based admin interface with a live guest preview. Published changes are validated and become available without restarting the server.
+It is a single Go application with embedded assets, server-rendered HTML, vanilla JavaScript and CSS, and no frontend build step.
 
-## Highlights
+## Start locally
 
-- Multiple events with separate public URLs
-- Multilingual menus and automatic browser-language selection
-- Scheduled meals, food trucks, permanent refreshments, prices, and sold-out states
-- Allergen, additive, and other food information
-- Event branding and responsive, accessible guest pages
-- Admin editor with validation, live preview, revision checks, and atomic publishing
-- Server-rendered Go application with no frontend build step
-- Embedded templates and static assets in a single binary
-
-## Quick start
-
-You need Go 1.27.1 or newer. Node.js is only required to run the JavaScript tests.
-
-Start the development server with automatic reload:
+Requires Go 1.27.2 or newer. Node.js is only needed for JavaScript tests.
 
 ```bash
 make dev
 ```
 
-Open [http://localhost:8080/admin/](http://localhost:8080/admin/) and sign in with:
+Open [http://localhost:8080/admin/](http://localhost:8080/admin/) and sign in:
 
 - Username: `admin`
 - Password: `manna-local-development`
 
-Choose **Add event**, enter its URL slug, and configure the menu in the editor. The public event link is available from the editor after the event is created.
+Choose **Add event**, enter a URL such as `/team-day`, and build the menu. The editor can preview and publish changes, open the public menu, download its QR code, duplicate an event, and restore earlier published versions.
 
-The development password is for local use only. Override it when needed:
+Runtime menus and uploaded branding are stored in the ignored `content` directory. Override the local password when needed:
 
 ```bash
-MANNA_ADMIN_PASSWORD="your-local-password-of-at-least-16-characters" make dev
+MANNA_ADMIN_PASSWORD="a-local-password-with-at-least-16-characters" make dev
 ```
-
-Menu data and uploaded branding are written to the ignored `content` directory. They are not committed to the repository.
 
 ## Run without automatic reload
 
-Enable the admin interface by providing a password and writable content directory:
+Enable the editor with a writable content directory and password:
 
 ```bash
-MANNA_ADMIN_PASSWORD="your-password-of-at-least-16-characters" \
+MANNA_ADMIN_PASSWORD="a-password-with-at-least-16-characters" \
 CONTENT_DIR=content \
 go run .
 ```
 
-To run the public server without the admin interface, omit the password:
+For a public-only server, omit the password:
 
 ```bash
 CONTENT_DIR=content go run .
 ```
 
-The server listens on port `8080` by default. Its health endpoint is [http://localhost:8080/healthz](http://localhost:8080/healthz).
+Manna listens on port `8080` by default. Health checks are available at `/healthz`.
 
 ## Docker Compose
 
-Create the local deployment files and generate a strong admin password:
+### Start
+
+Create the local deployment files:
 
 ```bash
 cp docker-compose.example.yaml docker-compose.yaml
@@ -68,62 +55,87 @@ cp .env.example .env
 openssl rand -base64 32
 ```
 
-Place the generated value in `.env`, then start Manna:
+Put the generated password in `.env`, then start Manna:
 
 ```bash
 docker compose up --build -d
 docker compose logs -f manna
 ```
 
-The service is exposed on `127.0.0.1:8080`. Published content remains in the host `content` directory when the container is replaced or restarted. Stop the service with `docker compose down`.
+Open the public service at [http://localhost:8080](http://localhost:8080). Stop it with:
 
-Before using the admin interface in the Compose deployment, place Manna behind an HTTPS reverse proxy. Docker traffic is not treated as local, and the admin interface rejects plain HTTP. Configure the proxy to replace `X-Forwarded-Proto` and `X-Forwarded-For`, then set the proxy trust variables below to the proxy's exact address or CIDR. Do not expose the backend port directly to untrusted networks.
+```bash
+docker compose down
+```
 
-The container runs as UID `10001` and must be able to write to `content`. Keep the container non-root and grant that UID access to the directory if startup reports a permissions error.
+### Shipped Compose settings
+
+| Setting | Reason |
+| --- | --- |
+| `127.0.0.1:8080:8080` | Makes Manna reachable only from the host, not the network |
+| `./content:/app/content` | Persists menus, revision history, and branding across container replacement |
+| `read_only: true` | Keeps the container filesystem immutable outside mounted content and `/tmp` |
+| UID `10001` | Runs Manna without root privileges |
+| `cap_drop: [ALL]` | Removes Linux capabilities |
+| `no-new-privileges` | Prevents privilege escalation |
+| Restricted `/tmp` | Provides a small temporary filesystem with `noexec`, `nosuid`, and `nodev` |
+| Memory/PID limits | Bounds resource use |
+
+The host `content` directory must be writable by container UID `10001`. If startup reports a permissions error, grant that UID access without making the container root.
+
+### HTTPS and trusted proxies
+
+Remote admin access requires HTTPS. Keep port `8080` private and place a TLS-terminating reverse proxy in front of Manna. The proxy must replace—not append—these headers:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $remote_addr;
+}
+```
+
+Then configure `.env`:
+
+```dotenv
+MANNA_ADMIN_TRUST_PROXY_HTTPS=true
+MANNA_ADMIN_TRUSTED_PROXY_CIDRS=<exact proxy address or CIDR>
+```
+
+For a host proxy connecting through Docker’s published port, use the source address that the container sees, which may be the Docker bridge gateway rather than `127.0.0.1`. For a proxy in another container, use a dedicated Docker network and trust only that network or proxy address. Never use a broad range such as `0.0.0.0/0`, and never expose Manna’s backend port directly to untrusted networks.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP server port |
-| `CONTENT_DIR` | embedded content | Directory containing runtime event data and branding |
-| `MANNA_ADMIN_PASSWORD` | unset | Enables `/admin/`; requires at least 16 characters and a writable `CONTENT_DIR` |
-| `MANNA_ADMIN_TRUST_PROXY_HTTPS` | `false` | Accept HTTPS forwarding information from trusted proxies |
-| `MANNA_ADMIN_TRUSTED_PROXY_CIDRS` | unset | Comma-separated proxy CIDRs; required when proxy HTTPS trust is enabled |
+| `CONTENT_DIR` | embedded content | Writable runtime menus and branding |
+| `MANNA_ADMIN_PASSWORD` | unset | Enables `/admin/`; minimum 16 characters |
+| `MANNA_ADMIN_TRUST_PROXY_HTTPS` | `false` | Trust HTTPS forwarding information from configured proxies |
+| `MANNA_ADMIN_TRUSTED_PROXY_CIDRS` | unset | Comma-separated trusted proxy addresses or CIDRs |
 
-When proxy trust is enabled, list only proxies that overwrite forwarding headers. Avoid broad ranges such as `0.0.0.0/0`.
+Without `CONTENT_DIR`, Manna uses bundled read-only content. Without `MANNA_ADMIN_PASSWORD`, the admin editor is disabled.
 
-## How content works
+## Publishing and content
 
-Each event has a public URL and its own menu. Use the admin interface to:
-
-- create and remove events;
-- set languages, event details, dates, and branding;
-- manage meals, food trucks, drinks, coffee, and snacks;
-- publish prices, sold-out states, payment notes, and food declarations;
-- preview, validate, and publish changes.
-
-Manna checks external content for updates while it is running. Invalid changes do not replace the last valid menu. Concurrent edits are protected by revision checks, and publishing replaces files atomically.
-
-Event URLs are public. The root page does not list them, but anyone with an event URL can open it.
+- Each event has its own public URL and validated YAML menu.
+- Published files are replaced atomically and appear without a restart.
+- Revision checks prevent overwriting newer changes.
+- The ten previous published versions are retained for restore.
+- Invalid external edits do not replace the last valid menu.
+- Event URLs are public but are not listed on the root page.
 
 ## Development
 
-Run the full test suite:
-
 ```bash
-make test
+make test                         # Go and JavaScript tests
+go test ./...                     # Go tests only
+node --test tests/*.test.cjs      # JavaScript tests only
+make build                        # Build bin/manna
 ```
 
-Run individual test suites or build the binary:
-
-```bash
-go test ./...
-node --test tests/*.test.cjs
-make build
-```
-
-The application uses Go's HTTP server and HTML templates plus framework-free JavaScript and CSS. Application dependencies are defined in `go.mod`; the automatic-reload tool is kept separately in `dev.mod`.
+Application dependencies are in `go.mod`. The automatic-reload tool is kept separately in `dev.mod`.
 
 ## License
 
