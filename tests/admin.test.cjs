@@ -196,6 +196,22 @@ test('revision history lists and restores a previous published menu', async () =
   assert.match(setup.elements['editor-status'].textContent, /now published/i);
 });
 
+test('loading another event closes stale revision history', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha'}, {path: '/beta'}], revision: 'manifest-1', can_manage: true, can_history: true}),
+    response(200, {path: '/alpha', config: config(), yaml: 'alpha', revision: 'rev-alpha'}),
+  ]);
+  await setup.hook.ready;
+  setup.replies.push(response(200, {revisions: []}));
+  await setup.hook.openHistory();
+  assert.equal(setup.elements['history-panel'].hidden, false);
+
+  setup.replies.push(response(200, {path: '/beta', config: config(), yaml: 'beta', revision: 'rev-beta'}));
+  await setup.hook.loadEvent('/beta');
+  assert.equal(setup.elements['history-panel'].hidden, true);
+  assert.equal(setup.elements['history-button'].attributes['aria-expanded'], 'false');
+});
+
 test('QR download stays disabled when no event exists', async () => {
   const setup = adminContext([
     response(200, {events: [], revision: 'manifest-1', can_manage: true}),

@@ -278,6 +278,7 @@
       elements.eventSelect.value = state.path;
       return false;
     }
+    if (state.path && eventPath !== state.path) closeHistory();
     const sequence = ++state.loadSequence;
     setBusy(true);
     setStatus(`Loading ${eventPath}…`);

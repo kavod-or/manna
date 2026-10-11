@@ -235,6 +235,13 @@ func TestEventAdminRestoreRejectsInvalidMissingAndStaleHistory(t *testing.T) {
 	if _, _, err := admin.RestoreEvent("/alpha", history[0].ID, "sha256:stale"); !errors.Is(err, admincontent.ErrRevisionStale) {
 		t.Fatalf("stale restore error = %v", err)
 	}
+	historyPath := filepath.Join(contentDir, eventHistoryDirectory("alpha.yaml"), history[0].ID+".yaml")
+	if err := os.WriteFile(historyPath, []byte(testMenu("Tampered history")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := admin.RestoreEvent("/alpha", history[0].ID, updatedRevision); !errors.Is(err, admincontent.ErrInvalidHistory) {
+		t.Fatalf("tampered history error = %v", err)
+	}
 	invalidID := newHistoryID(time.Now().UTC().Add(2*time.Second), []byte("days: ["))
 	historyDir := filepath.Join(contentDir, eventHistoryDirectory("alpha.yaml"))
 	if err := os.WriteFile(filepath.Join(historyDir, invalidID+".yaml"), []byte("days: ["), 0o600); err != nil {
@@ -617,6 +624,42 @@ func TestEventAdminDetectsStaleRevision(t *testing.T) {
 	}
 	if string(after) != string(hostEdit) {
 		t.Fatal("stale publish overwrote the host edit")
+	}
+	history, err := admin.EventHistory("/alpha")
+	if err != nil || len(history) != 0 {
+		t.Fatalf("stale publish created history = %#v, %v", history, err)
+	}
+}
+
+type failingPublishFS struct {
+	*rootedFS
+}
+
+func (content *failingPublishFS) writeFileAtomic(name, expectedRevision string, data []byte) error {
+	if name == "alpha.yaml" {
+		return errors.New("forced publish failure")
+	}
+	return content.rootedFS.writeFileAtomic(name, expectedRevision, data)
+}
+
+func TestEventAdminFailedPublishRollsBackHistory(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	root := admin.registry.content.(*rootedFS)
+	admin.registry.content = &failingPublishFS{rootedFS: root}
+	before, revision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.PublishEvent("/alpha", revision, []byte(testMenu("Rejected update"))); err == nil {
+		t.Fatal("forced publish failure unexpectedly succeeded")
+	}
+	after, err := os.ReadFile(filepath.Join(contentDir, "alpha.yaml"))
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatal("failed publish changed the live menu")
+	}
+	history, err := admin.EventHistory("/alpha")
+	if err != nil || len(history) != 0 {
+		t.Fatalf("failed publish left history = %#v, %v", history, err)
 	}
 }
 

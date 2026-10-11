@@ -527,7 +527,8 @@ func (admin *eventAdmin) RestoreEvent(eventPath, historyID, expectedCurrentRevis
 	if err != nil {
 		return nil, "", err
 	}
-	if _, err := parseHistoryID(historyID); err != nil {
+	_, historicalDigest, err := parseHistoryID(historyID)
+	if err != nil {
 		return nil, "", err
 	}
 	historyPath := path.Join(eventHistoryDirectory(route.menuPath), historyID+".yaml")
@@ -537,6 +538,9 @@ func (admin *eventAdmin) RestoreEvent(eventPath, historyID, expectedCurrentRevis
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("read event history: %w", err)
+	}
+	if !strings.HasPrefix(strings.TrimPrefix(contentRevision(content), "sha256:"), historicalDigest) {
+		return nil, "", admincontent.ErrInvalidHistory
 	}
 	revision, err := admin.publishEventLocked(route.menuPath, expectedCurrentRevision, content)
 	if err != nil {
@@ -590,23 +594,26 @@ func eventHistoryDirectory(menuPath string) string {
 
 func newHistoryID(archivedAt time.Time, content []byte) string {
 	digest := sha256.Sum256(content)
-	return archivedAt.UTC().Format(historyTimeLayout) + "-" + hex.EncodeToString(digest[:8])
+	return archivedAt.UTC().Format(historyTimeLayout) + "-" + hex.EncodeToString(digest[:])
 }
 
-func parseHistoryID(id string) (time.Time, error) {
-	const digestLength = 16
-	separator := len(id) - digestLength - 1
-	if separator <= 0 || id[separator] != '-' {
-		return time.Time{}, admincontent.ErrInvalidHistory
+func parseHistoryID(id string) (time.Time, string, error) {
+	separator := strings.LastIndexByte(id, '-')
+	if separator <= 0 {
+		return time.Time{}, "", admincontent.ErrInvalidHistory
 	}
 	archivedAt, err := time.Parse(historyTimeLayout, id[:separator])
 	if err != nil {
-		return time.Time{}, admincontent.ErrInvalidHistory
+		return time.Time{}, "", admincontent.ErrInvalidHistory
 	}
-	if _, err := hex.DecodeString(id[separator+1:]); err != nil {
-		return time.Time{}, admincontent.ErrInvalidHistory
+	digest := id[separator+1:]
+	if len(digest) != sha256.Size*2 {
+		return time.Time{}, "", admincontent.ErrInvalidHistory
 	}
-	return archivedAt, nil
+	if _, err := hex.DecodeString(digest); err != nil {
+		return time.Time{}, "", admincontent.ErrInvalidHistory
+	}
+	return archivedAt, digest, nil
 }
 
 func (admin *eventAdmin) eventHistory(menuPath string) ([]admincontent.Revision, error) {
@@ -624,15 +631,11 @@ func (admin *eventAdmin) eventHistory(menuPath string) ([]admincontent.Revision,
 			continue
 		}
 		id := strings.TrimSuffix(entry.Name(), ".yaml")
-		archivedAt, err := parseHistoryID(id)
+		archivedAt, digest, err := parseHistoryID(id)
 		if err != nil {
 			continue
 		}
-		content, err := fs.ReadFile(admin.registry.content, path.Join(directory, entry.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("read event history: %w", err)
-		}
-		revisions = append(revisions, admincontent.Revision{ID: id, Revision: contentRevision(content), ArchivedAt: archivedAt})
+		revisions = append(revisions, admincontent.Revision{ID: id, Revision: "sha256:" + digest, ArchivedAt: archivedAt})
 	}
 	sort.Slice(revisions, func(left, right int) bool { return revisions[left].ArchivedAt.After(revisions[right].ArchivedAt) })
 	return revisions, nil
