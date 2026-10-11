@@ -17,6 +17,9 @@ var (
 	ErrInvalidEvent    = errors.New("invalid admin event")
 	ErrHistoryNotFound = errors.New("admin event history entry not found")
 	ErrInvalidHistory  = errors.New("invalid admin event history entry")
+	ErrDraftNotFound   = errors.New("admin event draft not found")
+	ErrDraftStale      = errors.New("admin event draft revision is stale")
+	ErrDraftConflict   = errors.New("admin event changed since the draft was created")
 )
 
 // Content is the narrow boundary between the web admin and menu storage.
@@ -63,4 +66,23 @@ type Revision struct {
 type HistoryContent interface {
 	EventHistory(eventPath string) ([]Revision, error)
 	RestoreEvent(eventPath, historyID, expectedCurrentRevision string) (content []byte, newRevision string, err error)
+}
+
+// Draft is an unpublished event menu. BaseRevision identifies the published
+// menu from which the draft was started; Revision protects the draft itself
+// from concurrent edits.
+type Draft struct {
+	YAML         string    `json:"yaml"`
+	BaseRevision string    `json:"base_revision"`
+	Revision     string    `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// DraftContent is implemented by writable content stores that persist one
+// private draft per event and publish it with optimistic concurrency.
+type DraftContent interface {
+	ReadDraft(eventPath string) (*Draft, error)
+	SaveDraft(eventPath, baseRevision, expectedDraftRevision string, content []byte) (*Draft, error)
+	DeleteDraft(eventPath, expectedDraftRevision string) error
+	PublishDraft(eventPath, expectedPublishedRevision, expectedDraftRevision string) (content []byte, newRevision string, err error)
 }

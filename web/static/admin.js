@@ -11,6 +11,8 @@
     tabs: document.getElementById('editor-tabs'),
     status: document.getElementById('editor-status'),
     validate: document.getElementById('validate-button'),
+    saveDraft: document.getElementById('save-draft-button'),
+    discardDraft: document.getElementById('discard-draft-button'),
     publish: document.getElementById('publish-button'),
     reload: document.getElementById('reload-button'),
     history: document.getElementById('history-button'),
@@ -30,7 +32,7 @@
   };
   if (!elements.form) return;
 
-  const state = {path: '', archived: false, events: [], publicURL: '', revision: '', manifestRevision: '', canManageEvents: false, canUseHistory: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
+  const state = {path: '', archived: false, events: [], publicURL: '', revision: '', draftRevision: '', draftBaseRevision: '', draftUpdatedAt: '', draftConflict: false, manifestRevision: '', canManageEvents: false, canUseHistory: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
   const tabs = [['event', 'Event'], ['permanent', 'Permanent menu'], ['schedule', 'Schedule'], ['regulatory', 'Declarations'], ['yaml', 'YAML']];
   let previewTimer = 0;
   const eventSlug = (eventPath) => encodeURIComponent(eventPath.replace(/^\//, ''));
@@ -40,6 +42,13 @@
   const isDirty = () => Boolean(state.path) && (
     (state.config && snapshot() !== state.saved) || state.yaml !== state.savedYAML
   );
+  const hasDraft = () => Boolean(state.draftRevision);
+  const clearDraftState = () => {
+    state.draftRevision = '';
+    state.draftBaseRevision = '';
+    state.draftUpdatedAt = '';
+    state.draftConflict = false;
+  };
 
   function draftPayload() {
     return isYAML()
@@ -71,7 +80,9 @@
     elements.archiveEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
     elements.deleteEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
     elements.validate.disabled = state.busy || !loaded;
-    elements.publish.disabled = state.busy || !loaded || !isDirty();
+    elements.saveDraft.disabled = state.busy || !loaded || !isDirty();
+    elements.discardDraft.disabled = state.busy || !loaded || !hasDraft();
+    elements.publish.disabled = state.busy || !loaded || (!isDirty() && !hasDraft()) || state.draftConflict;
     elements.reload.disabled = state.busy || !loaded;
     elements.history.disabled = state.busy || !loaded || !state.canUseHistory;
     for (const input of elements.form.querySelectorAll?.('input, textarea, select, button') || []) input.disabled = state.busy || !loaded;
@@ -81,7 +92,7 @@
   function changed(options = {}) {
     updateControls();
     renderPreview(!options.immediatePreview);
-    if (isDirty()) setStatus('You have unpublished changes.', 'warning');
+    if (isDirty()) setStatus('You have changes that are not saved as a draft.', 'warning');
   }
 
   function setBusy(busy) { state.busy = busy; updateControls(); }
@@ -170,6 +181,7 @@
 
   function clearEvent() {
     state.path = ''; state.archived = false; state.publicURL = ''; state.revision = ''; state.canIncludeLogo = false; state.config = null; state.saved = '';
+    clearDraftState();
     state.yaml = ''; state.savedYAML = ''; state.previewLogo = null; state.publishedLogo = '';
     elements.historyPanel.hidden = true;
     elements.history.setAttribute('aria-expanded', 'false');
@@ -329,27 +341,33 @@
       state.canIncludeLogo = Boolean(body.can_include_logo);
       elements.qrLogoOption.checked = false;
       state.revision = body.revision;
-      state.yaml = body.yaml || '';
+      state.draftRevision = body.draft?.revision || '';
+      state.draftBaseRevision = body.draft?.base_revision || '';
+      state.draftUpdatedAt = body.draft?.updated_at || '';
+      state.draftConflict = Boolean(body.draft?.conflict);
+      const working = body.draft || body;
+      state.yaml = working.yaml || '';
       state.savedYAML = state.yaml;
       state.previewLogo = null;
       state.previewDay = 0;
-      if (body.config) {
-        applyConfig(body.config);
+      state.publishedLogo = body.config?.conference?.logo || '';
+      if (working.config) {
+        applyConfig(working.config);
         state.saved = snapshot();
-        state.publishedLogo = state.config.conference.logo || '';
         state.previewLanguage = state.config.conference.languages[0] || 'en';
       } else {
         state.config = null;
         state.saved = '';
-        state.publishedLogo = '';
         state.previewLanguage = 'en';
         state.tab = 'yaml';
       }
       elements.eventSelect.value = body.path;
       updatePublicLink();
       render();
-      const loadedStatus = state.archived ? `${body.path} loaded. This event is archived and hidden from guests.` : `${body.path} loaded.`;
-      setStatus(body.config ? loadedStatus : `${body.path} contains invalid YAML. Repair it here, then check or publish it.`, body.config && !state.archived ? 'success' : 'warning');
+      let loadedStatus = state.archived ? `${body.path} loaded. This event is archived and hidden from guests.` : `${body.path} loaded.`;
+      if (hasDraft()) loadedStatus = state.draftConflict ? 'Draft loaded, but the published menu has changed. Copy its YAML before discarding it if you need to reconcile the changes.' : `Saved draft loaded${state.draftUpdatedAt ? ` from ${new Date(state.draftUpdatedAt).toLocaleString()}` : ''}.`;
+      if (!working.config) loadedStatus = `${hasDraft() ? 'The saved draft' : body.path} contains invalid YAML or is incomplete. Continue editing it here.`;
+      setStatus(loadedStatus, state.draftConflict || !working.config || state.archived ? 'warning' : 'success');
       return true;
     } catch (error) {
       if (sequence === state.loadSequence) setStatus(error.message || 'Could not load the event.', 'error');
@@ -403,6 +421,7 @@
     if (!window.confirm(`Restore the version from ${label}? The current published version will remain in history.`)) return;
     setBusy(true); setStatus(`Restoring ${state.path}…`);
     try {
+      const preservedDraft = hasDraft();
       const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}/history/${encodeURIComponent(historyID)}/restore`, {
         method: 'POST', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
         body: JSON.stringify({revision: state.revision}),
@@ -412,17 +431,22 @@
       state.publicURL = body.public_url || '';
       const listed = state.events.find((event) => event.path === state.path);
       if (listed) listed.archived = state.archived;
-      state.yaml = body.yaml || '';
-      state.savedYAML = state.yaml;
-      applyConfig(body.config);
-      state.saved = snapshot();
-      state.publishedLogo = state.config.conference.logo || '';
+      if (!preservedDraft) {
+        state.yaml = body.yaml || '';
+        state.savedYAML = state.yaml;
+        applyConfig(body.config);
+        state.saved = snapshot();
+      } else {
+        state.draftConflict = state.draftBaseRevision !== state.revision;
+      }
+      state.publishedLogo = body.config?.conference?.logo || '';
       state.canIncludeLogo = Boolean(body.can_include_logo);
       state.previewLogo = null;
       updatePublicLink();
       render();
       await refreshHistorySafely();
-      setStatus(state.archived ? `The version from ${label} was restored. The event remains archived.` : `The version from ${label} is now published.`, state.archived ? 'warning' : 'success');
+      const restoredStatus = state.archived ? `The version from ${label} was restored. The event remains archived.` : `The version from ${label} is now published.`;
+      setStatus(preservedDraft ? `${restoredStatus} Your saved draft was preserved and must be reconciled before publishing.` : restoredStatus, state.archived || preservedDraft ? 'warning' : 'success');
     } catch (error) {
       setStatus(error.status === 409 ? 'The live menu changed after you loaded it. Reload before restoring a version.' : (error.message || 'Could not restore the event.'), error.status === 409 ? 'warning' : 'error');
     } finally { setBusy(false); }
@@ -772,24 +796,70 @@
     finally { setBusy(false); }
   }
 
+  async function persistDraft() {
+    const payload = {...draftPayload(), base_revision: state.draftBaseRevision || state.revision, draft_revision: state.draftRevision};
+    const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}/draft`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'}, body: JSON.stringify(payload),
+    });
+    state.draftRevision = body.revision;
+    state.draftBaseRevision = body.base_revision;
+    state.draftUpdatedAt = body.updated_at || '';
+    state.draftConflict = Boolean(body.conflict);
+    if (typeof body.yaml === 'string') state.yaml = body.yaml;
+    if (body.config) applyConfig(body.config);
+    state.saved = state.config ? snapshot() : '';
+    state.savedYAML = state.yaml;
+    return body;
+  }
+
+  async function saveDraft() {
+    if ((!state.config && !isYAML()) || state.busy || !isDirty()) return false;
+    setBusy(true); setStatus('Saving draft…');
+    try {
+      await persistDraft();
+      render();
+      setStatus(state.draftConflict ? 'Draft saved, but the published menu changed after this draft was started.' : 'Draft saved. It is not visible to guests.', state.draftConflict ? 'warning' : 'success');
+      return true;
+    } catch (error) {
+      setStatus(error.status === 409 ? 'The event or draft changed in another session. Reload before saving again.' : (error.message || 'Could not save the draft.'), error.status === 409 ? 'warning' : 'error');
+      return false;
+    } finally { setBusy(false); }
+  }
+
+  async function discardDraft() {
+    if (state.busy || !hasDraft()) return;
+    if (!window.confirm(`Discard the saved draft for ${state.path}? The published menu will not change.`)) return;
+    setBusy(true); setStatus('Discarding draft…');
+    try {
+      await requestJSON(`/admin/api/events/${eventSlug(state.path)}/draft`, {
+        method: 'DELETE', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'}, body: JSON.stringify({revision: state.draftRevision}),
+      });
+      clearDraftState();
+      await loadEvent(state.path, false);
+      setStatus('Draft discarded. The published menu is unchanged.', 'success');
+    } catch (error) {
+      setStatus(error.status === 409 ? 'The draft changed in another session. Reload before discarding it.' : (error.message || 'Could not discard the draft.'), error.status === 409 ? 'warning' : 'error');
+    } finally { setBusy(false); }
+  }
+
   async function publishMenu() {
-    if ((!state.config && !isYAML()) || state.busy || !isDirty()) return;
+    if ((!state.config && !isYAML()) || state.busy || (!isDirty() && !hasDraft()) || state.draftConflict) return;
     if (!window.confirm(`Publish your changes to ${state.path}?`)) return;
     setBusy(true); setStatus('Checking and publishing menu…');
     try {
-      const payload = {...draftPayload(), revision: state.revision};
-      const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}`, {method: 'PUT', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'}, body: JSON.stringify(payload)});
+      if (isDirty()) await persistDraft();
+      const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}/draft/publish`, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'}, body: JSON.stringify({revision: state.revision, draft_revision: state.draftRevision})});
       state.revision = body.revision;
+      clearDraftState();
       state.archived = Boolean(body.archived);
       state.publicURL = body.public_url || '';
       const listed = state.events.find((event) => event.path === state.path);
       if (listed) listed.archived = state.archived;
-      const publishedFromYAML = isYAML();
       if (body.config) applyConfig(body.config);
       if (typeof body.yaml === 'string') state.yaml = body.yaml;
-      state.saved = body.config || !publishedFromYAML ? snapshot() : null;
-      state.savedYAML = typeof body.yaml === 'string' || publishedFromYAML ? state.yaml : null;
-      if (body.config || !publishedFromYAML) state.publishedLogo = state.config?.conference.logo || '';
+      state.saved = state.config ? snapshot() : '';
+      state.savedYAML = state.yaml;
+      state.publishedLogo = state.config?.conference.logo || '';
       state.canIncludeLogo = Boolean(body.can_include_logo);
       state.previewLogo = null;
       updatePublicLink();
@@ -797,7 +867,7 @@
       if (!elements.historyPanel.hidden) await refreshHistorySafely();
       setStatus(state.archived ? `${state.path} was saved successfully and remains archived.` : `${state.path} was published successfully.`, 'success');
     } catch (error) {
-      setStatus(error.status === 409 ? 'The live menu changed after you loaded it. Reload before publishing again.' : (error.message || 'Could not publish the menu.'), error.status === 409 ? 'warning' : 'error');
+      setStatus(error.status === 409 ? 'The published menu or draft changed. Your draft is still saved; reload before publishing.' : (error.message || 'Could not publish the menu.'), error.status === 409 ? 'warning' : 'error');
     } finally { setBusy(false); }
   }
 
@@ -823,7 +893,6 @@
       if (!sourceWasDirty) {
         state.savedYAML = state.yaml;
         state.saved = snapshot();
-        state.publishedLogo = state.config.conference.logo || '';
       }      state.tab = nextTab;
       render();
       setStatus(sourceWasDirty ? 'Your unpublished changes were synchronized.' : `${state.path} loaded.`, sourceWasDirty ? 'warning' : 'success');
@@ -897,6 +966,8 @@
     if (button) restoreEvent(button.dataset.historyId, button.dataset.historyLabel);
   });
   elements.validate.addEventListener('click', validateMenu);
+  elements.saveDraft.addEventListener('click', saveDraft);
+  elements.discardDraft.addEventListener('click', discardDraft);
   elements.publish.addEventListener('click', publishMenu);
   elements.tabs.addEventListener('click', (event) => { if (event.target.dataset.tab) switchTab(event.target.dataset.tab); });
   elements.form.addEventListener('input', (event) => { if (event.target.dataset.type !== 'price' && event.target.dataset.action !== 'rename') updateField(event.target); });
@@ -915,7 +986,7 @@
   elements.form.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
       event.preventDefault();
-      validateMenu();
+      saveDraft();
     }
   });
   elements.previewLanguage?.addEventListener('change', () => { state.previewLanguage = elements.previewLanguage.value; renderPreview(); });
@@ -925,5 +996,5 @@
 
   updatePublicLink();
   const ready = loadEvents();
-  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, duplicateEvent, setEventArchived, deleteEvent, openHistory, restoreEvent, addAt, removeAt, updateField, render, flushPreview});
+  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, saveDraft, discardDraft, publishMenu, switchTab, uploadLogo, addEvent, duplicateEvent, setEventArchived, deleteEvent, openHistory, restoreEvent, addAt, removeAt, updateField, render, flushPreview});
 })();

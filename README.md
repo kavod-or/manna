@@ -17,7 +17,7 @@ Open [http://localhost:8080/admin/](http://localhost:8080/admin/) and sign in:
 - Username: `admin`
 - Password: `manna-local-development`
 
-Choose **Add event**, enter a URL such as `/team-day`, and build the menu. The editor can preview and publish changes, archive events, open public menus, download QR codes, duplicate events, and restore earlier published versions.
+Choose **Add event**, enter a URL such as `/team-day`, and build the menu. The editor can save private drafts, preview and publish changes, archive events, download QR codes, duplicate events, and restore earlier published versions.
 
 Runtime menus and uploaded branding are stored in the ignored `content` directory. Override the local password when needed:
 
@@ -73,7 +73,7 @@ docker compose down
 | Setting | Reason |
 | --- | --- |
 | `127.0.0.1:8080:8080` | Makes Manna reachable only from the host, not the network |
-| `./content:/app/content` | Persists menus, revision history, and branding across container replacement |
+| `./content:/app/content` | Persists menus, drafts, revision history, and branding across container replacement |
 | `read_only: true` | Keeps the container filesystem immutable outside mounted content and `/tmp` |
 | UID `10001` | Runs Manna without root privileges |
 | `cap_drop: [ALL]` | Removes Linux capabilities |
@@ -121,6 +121,8 @@ Without `CONTENT_DIR`, Manna uses bundled read-only content. Without `MANNA_ADMI
 
 - Each event has its own public URL and validated YAML menu.
 - Published files are replaced atomically and appear without a restart.
+- **Save draft** keeps one private, server-side working copy per event. Drafts may be incomplete and are never shown to guests.
+- Publishing validates the saved draft, archives the current menu, and removes the draft. If the published menu changed in the meantime, the draft is preserved and publication is blocked.
 - Revision checks prevent overwriting newer changes.
 - The ten previous published versions are retained for restore.
 - Archiving hides an event and its QR code without deleting its menu, branding, or history. Use **Make public** to restore it.

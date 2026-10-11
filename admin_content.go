@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -30,12 +31,21 @@ var _ admincontent.Content = (*eventAdmin)(nil)
 var _ admincontent.LogoContent = (*eventAdmin)(nil)
 var _ admincontent.EventContent = (*eventAdmin)(nil)
 var _ admincontent.HistoryContent = (*eventAdmin)(nil)
+var _ admincontent.DraftContent = (*eventAdmin)(nil)
 
 const (
 	eventHistoryRoot  = ".manna-history"
+	eventDraftRoot    = ".manna-drafts"
 	eventHistoryLimit = 10
 	historyTimeLayout = "20060102T150405.000000000Z"
 )
+
+type storedEventDraft struct {
+	Schema       int       `json:"schema"`
+	YAML         string    `json:"yaml"`
+	BaseRevision string    `json:"base_revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
 
 const blankEventMenu = `conference:
   languages: [de, en]
@@ -376,6 +386,13 @@ func (admin *eventAdmin) DeleteEvent(eventPath, confirmation, expectedManifestRe
 	if err != nil {
 		return "", fmt.Errorf("read event before removal: %w", err)
 	}
+	var draftRevision string
+	draftContent, err := fs.ReadFile(admin.registry.content, eventDraftPath(removed.Menu))
+	if err == nil {
+		draftRevision = contentRevision(draftContent)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("read event draft before removal: %w", err)
+	}
 	logoRevisions, err := admin.uploadedEventLogos(removed.Menu)
 	if err != nil {
 		return "", err
@@ -416,6 +433,11 @@ func (admin *eventAdmin) DeleteEvent(eventPath, confirmation, expectedManifestRe
 	if historyWriter, ok := admin.registry.content.(interface{ removeDirectory(string) error }); ok {
 		if err := historyWriter.removeDirectory(eventHistoryDirectory(removed.Menu)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("remove event history after route removal: %w", err)
+		}
+	}
+	if draftRevision != "" {
+		if err := admin.deleteDraftLocked(removed.Menu, draftRevision); err != nil && !errors.Is(err, admincontent.ErrDraftNotFound) {
+			return "", fmt.Errorf("remove event draft after route removal: %w", err)
 		}
 	}
 	return contentRevision(updated), nil
@@ -560,6 +582,162 @@ func (admin *eventAdmin) PublishEvent(eventPath, expectedRevision string, conten
 		return "", err
 	}
 	return admin.publishEventLocked(route.menuPath, expectedRevision, content)
+}
+
+func (admin *eventAdmin) ReadDraft(eventPath string) (*admincontent.Draft, error) {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+	route, err := admin.route(eventPath)
+	if err != nil {
+		return nil, err
+	}
+	return admin.readDraftLocked(route.menuPath)
+}
+
+func (admin *eventAdmin) SaveDraft(eventPath, baseRevision, expectedDraftRevision string, content []byte) (*admincontent.Draft, error) {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+	route, err := admin.route(eventPath)
+	if err != nil {
+		return nil, err
+	}
+	if baseRevision == "" {
+		return nil, admincontent.ErrRevisionStale
+	}
+	existing, err := admin.readDraftLocked(route.menuPath)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		live, err := fs.ReadFile(admin.registry.content, route.menuPath)
+		if err != nil {
+			return nil, fmt.Errorf("read published event before saving draft: %w", err)
+		}
+		if contentRevision(live) != baseRevision {
+			return nil, admincontent.ErrRevisionStale
+		}
+		if expectedDraftRevision != "" {
+			return nil, admincontent.ErrDraftStale
+		}
+	} else {
+		if existing.Revision != expectedDraftRevision || existing.BaseRevision != baseRevision {
+			return nil, admincontent.ErrDraftStale
+		}
+		if existing.YAML == string(content) {
+			return existing, nil
+		}
+	}
+	stored := storedEventDraft{Schema: 1, YAML: string(content), BaseRevision: baseRevision, UpdatedAt: time.Now().UTC()}
+	encoded, err := json.Marshal(stored)
+	if err != nil {
+		return nil, fmt.Errorf("encode event draft: %w", err)
+	}
+	encoded = append(encoded, '\n')
+	writer, ok := admin.registry.content.(interface {
+		writeDraftFile(string, string, []byte) error
+	})
+	if !ok {
+		return nil, admincontent.ErrContentReadOnly
+	}
+	if err := writer.writeDraftFile(eventDraftPath(route.menuPath), expectedDraftRevision, encoded); err != nil {
+		if errors.Is(err, admincontent.ErrRevisionStale) || errors.Is(err, fs.ErrExist) || errors.Is(err, fs.ErrNotExist) {
+			return nil, admincontent.ErrDraftStale
+		}
+		return nil, fmt.Errorf("write event draft: %w", err)
+	}
+	return draftFromStored(stored, contentRevision(encoded)), nil
+}
+
+func (admin *eventAdmin) DeleteDraft(eventPath, expectedDraftRevision string) error {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+	route, err := admin.route(eventPath)
+	if err != nil {
+		return err
+	}
+	return admin.deleteDraftLocked(route.menuPath, expectedDraftRevision)
+}
+
+func (admin *eventAdmin) PublishDraft(eventPath, expectedPublishedRevision, expectedDraftRevision string) ([]byte, string, error) {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+	route, err := admin.route(eventPath)
+	if err != nil {
+		return nil, "", err
+	}
+	draft, err := admin.readDraftLocked(route.menuPath)
+	if err != nil {
+		return nil, "", err
+	}
+	if draft == nil {
+		return nil, "", admincontent.ErrDraftNotFound
+	}
+	if draft.Revision != expectedDraftRevision {
+		return nil, "", admincontent.ErrDraftStale
+	}
+	if draft.BaseRevision != expectedPublishedRevision {
+		return nil, "", admincontent.ErrDraftConflict
+	}
+	revision, err := admin.publishEventLocked(route.menuPath, expectedPublishedRevision, []byte(draft.YAML))
+	if err != nil {
+		return nil, "", err
+	}
+	_ = admin.deleteDraftLocked(route.menuPath, draft.Revision)
+	return []byte(draft.YAML), revision, nil
+}
+
+func (admin *eventAdmin) readDraftLocked(menuPath string) (*admincontent.Draft, error) {
+	encoded, err := fs.ReadFile(admin.registry.content, eventDraftPath(menuPath))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read event draft: %w", err)
+	}
+	var stored storedEventDraft
+	if err := json.Unmarshal(encoded, &stored); err != nil || stored.Schema != 1 || stored.BaseRevision == "" || stored.UpdatedAt.IsZero() {
+		return nil, fmt.Errorf("invalid stored event draft")
+	}
+	revision := contentRevision(encoded)
+	live, err := fs.ReadFile(admin.registry.content, menuPath)
+	if err != nil {
+		return nil, fmt.Errorf("read published event for draft: %w", err)
+	}
+	if bytes.Equal(live, []byte(stored.YAML)) {
+		_ = admin.deleteDraftLocked(menuPath, revision)
+		return nil, nil
+	}
+	return draftFromStored(stored, revision), nil
+}
+
+func (admin *eventAdmin) deleteDraftLocked(menuPath, expectedRevision string) error {
+	if expectedRevision == "" {
+		return admincontent.ErrDraftStale
+	}
+	writer, ok := admin.registry.content.(interface{ removeFileRevision(string, string) error })
+	if !ok {
+		return admincontent.ErrContentReadOnly
+	}
+	if err := writer.removeFileRevision(eventDraftPath(menuPath), expectedRevision); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return admincontent.ErrDraftNotFound
+		}
+		if errors.Is(err, admincontent.ErrRevisionStale) {
+			return admincontent.ErrDraftStale
+		}
+		return fmt.Errorf("remove event draft: %w", err)
+	}
+	return nil
+}
+
+func draftFromStored(stored storedEventDraft, revision string) *admincontent.Draft {
+	return &admincontent.Draft{YAML: stored.YAML, BaseRevision: stored.BaseRevision, Revision: revision, UpdatedAt: stored.UpdatedAt}
+}
+
+func eventDraftPath(menuPath string) string {
+	base := strings.TrimSuffix(path.Base(menuPath), path.Ext(menuPath))
+	digest := sha256.Sum256([]byte(menuPath))
+	return path.Join(eventDraftRoot, base+"-"+hex.EncodeToString(digest[:8])+".json")
 }
 
 func (admin *eventAdmin) EventHistory(eventPath string) ([]admincontent.Revision, error) {
@@ -862,6 +1040,19 @@ func (root *rootedFS) writeHistoryFile(name string, content []byte) error {
 		return err
 	}
 	return root.writeNewFile(name, content)
+}
+
+func (root *rootedFS) writeDraftFile(name, expectedRevision string, content []byte) error {
+	if !fs.ValidPath(name) || !strings.HasPrefix(name, eventDraftRoot+"/") || strings.Contains(name, `\`) {
+		return fmt.Errorf("invalid draft path %q", name)
+	}
+	if err := root.root.MkdirAll(path.Dir(name), 0o700); err != nil {
+		return err
+	}
+	if expectedRevision == "" {
+		return root.writeNewFile(name, content)
+	}
+	return root.writeFileAtomic(name, expectedRevision, content)
 }
 
 func (root *rootedFS) removeDirectory(name string) error {

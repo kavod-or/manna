@@ -92,6 +92,101 @@ func TestEventAdminValidatesWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestEventAdminDraftLifecycle(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	published, publishedRevision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidDraft := []byte("# unfinished\nconference: [")
+	draft, err := admin.SaveDraft("/alpha", publishedRevision, "", invalidDraft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.YAML != string(invalidDraft) || draft.BaseRevision != publishedRevision || draft.Revision == "" || draft.UpdatedAt.IsZero() {
+		t.Fatalf("draft = %#v", draft)
+	}
+	if live, err := os.ReadFile(filepath.Join(contentDir, "alpha.yaml")); err != nil || !bytes.Equal(live, published) {
+		t.Fatal("saving a draft changed the published menu")
+	}
+	loaded, err := admin.ReadDraft("/alpha")
+	if err != nil || loaded == nil || loaded.YAML != string(invalidDraft) || loaded.Revision != draft.Revision {
+		t.Fatalf("loaded draft = %#v, %v", loaded, err)
+	}
+	if _, err := admin.SaveDraft("/alpha", publishedRevision, "sha256:stale", []byte("other")); !errors.Is(err, admincontent.ErrDraftStale) {
+		t.Fatalf("stale draft save error = %v", err)
+	}
+	if _, _, err := admin.PublishDraft("/alpha", publishedRevision, draft.Revision); !errors.Is(err, admincontent.ErrInvalidMenu) {
+		t.Fatalf("invalid draft publish error = %v", err)
+	}
+	if loaded, err := admin.ReadDraft("/alpha"); err != nil || loaded == nil {
+		t.Fatalf("invalid publish did not retain draft: %#v, %v", loaded, err)
+	}
+
+	validDraft := []byte(testMenu("Draft Alpha") + "# retained comment\n")
+	draft, err = admin.SaveDraft("/alpha", publishedRevision, draft.Revision, validDraft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, newRevision, err := admin.PublishDraft("/alpha", publishedRevision, draft.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(content, validDraft) || newRevision != contentRevision(validDraft) {
+		t.Fatalf("published draft revision = %q, content = %q", newRevision, content)
+	}
+	if loaded, err := admin.ReadDraft("/alpha"); err != nil || loaded != nil {
+		t.Fatalf("published draft remains = %#v, %v", loaded, err)
+	}
+	history, err := admin.EventHistory("/alpha")
+	if err != nil || len(history) != 1 || history[0].Revision != publishedRevision {
+		t.Fatalf("draft publish history = %#v, %v", history, err)
+	}
+}
+
+func TestEventAdminDraftDetectsPublishedConflict(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	_, publishedRevision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := admin.SaveDraft("/alpha", publishedRevision, "", []byte(testMenu("Draft Alpha")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostEdit := []byte(testMenu("Host Alpha"))
+	if err := os.WriteFile(filepath.Join(contentDir, "alpha.yaml"), hostEdit, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := admin.PublishDraft("/alpha", contentRevision(hostEdit), draft.Revision); !errors.Is(err, admincontent.ErrDraftConflict) {
+		t.Fatalf("conflicted publish error = %v", err)
+	}
+	if loaded, err := admin.ReadDraft("/alpha"); err != nil || loaded == nil || loaded.YAML != draft.YAML {
+		t.Fatalf("conflicted draft was lost = %#v, %v", loaded, err)
+	}
+}
+
+func TestEventAdminDeletionRemovesMalformedDraft(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	draftPath := eventDraftPath("alpha.yaml")
+	if err := os.MkdirAll(filepath.Join(contentDir, filepath.Dir(draftPath)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contentDir, draftPath), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestRevision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DeleteEvent("/alpha", "/alpha", manifestRevision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(contentDir, draftPath)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("draft remains after event deletion: %v", err)
+	}
+}
+
 func TestEventAdminPublishesValidMenuAtomically(t *testing.T) {
 	admin, contentDir := newTestEventAdmin(t)
 	_, revision, err := admin.ReadEvent("/alpha")

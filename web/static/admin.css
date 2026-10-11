@@ -203,6 +203,8 @@ select:hover:not(:disabled) { border-color: #9eb8a7; }
 .top-action.add-event { color: var(--green); background: var(--green-soft); }
 .top-action.danger { color: var(--danger); background: transparent; }
 .top-action.danger:hover:not(:disabled) { border-color: transparent; background: var(--danger-soft); box-shadow: none; }
+.top-action.draft-action { color: #665625; }
+.top-action.draft-action:hover:not(:disabled) { background: #fff8dc; }
 .top-action.publish-action { padding-inline: 0.85rem; box-shadow: 0 3px 10px rgb(21 59 49 / 18%); }
 .top-action.publish-action:hover:not(:disabled) { box-shadow: 0 5px 14px rgb(21 59 49 / 24%); transform: translateY(-1px); }
 .action-icon { min-width: 1em; font-size: 1rem; font-weight: 800; line-height: 1; text-align: center; }

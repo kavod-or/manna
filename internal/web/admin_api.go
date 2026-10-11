@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	admincontent "manna/internal/admin"
 	"manna/internal/menu"
@@ -36,14 +37,39 @@ type adminYAMLRequest struct {
 }
 
 type adminEventResponse struct {
-	Path             string       `json:"path"`
-	Archived         bool         `json:"archived"`
-	PublicURL        string       `json:"public_url,omitempty"`
-	CanIncludeLogo   bool         `json:"can_include_logo"`
-	YAML             string       `json:"yaml"`
-	Config           *menu.Config `json:"config,omitempty"`
-	Revision         string       `json:"revision"`
-	ManifestRevision string       `json:"manifest_revision,omitempty"`
+	Path             string              `json:"path"`
+	Archived         bool                `json:"archived"`
+	PublicURL        string              `json:"public_url,omitempty"`
+	CanIncludeLogo   bool                `json:"can_include_logo"`
+	YAML             string              `json:"yaml"`
+	Config           *menu.Config        `json:"config,omitempty"`
+	Revision         string              `json:"revision"`
+	ManifestRevision string              `json:"manifest_revision,omitempty"`
+	Draft            *adminDraftResponse `json:"draft,omitempty"`
+}
+
+type adminDraftResponse struct {
+	YAML         string       `json:"yaml"`
+	Config       *menu.Config `json:"config,omitempty"`
+	BaseRevision string       `json:"base_revision"`
+	Revision     string       `json:"revision"`
+	UpdatedAt    string       `json:"updated_at"`
+	Conflict     bool         `json:"conflict"`
+}
+
+type adminDraftRequest struct {
+	adminYAMLRequest
+	BaseRevision  string `json:"base_revision"`
+	DraftRevision string `json:"draft_revision,omitempty"`
+}
+
+type adminDraftRevisionRequest struct {
+	Revision string `json:"revision"`
+}
+
+type adminPublishDraftRequest struct {
+	Revision      string `json:"revision"`
+	DraftRevision string `json:"draft_revision"`
 }
 
 type adminCreateEventRequest struct {
@@ -91,6 +117,9 @@ func (s *server) adminHandler() http.Handler {
 	mux.HandleFunc("POST /admin/api/events/{slug}/logo", s.adminUploadLogo)
 	mux.HandleFunc("GET /admin/api/events/{slug}/qr.svg", s.adminEventQR)
 	mux.HandleFunc("PUT /admin/api/events/{slug}", s.adminPublishEvent)
+	mux.HandleFunc("PUT /admin/api/events/{slug}/draft", s.adminSaveDraft)
+	mux.HandleFunc("DELETE /admin/api/events/{slug}/draft", s.adminDeleteDraft)
+	mux.HandleFunc("POST /admin/api/events/{slug}/draft/publish", s.adminPublishDraft)
 	return mux
 }
 
@@ -392,6 +421,17 @@ func (s *server) adminReadEvent(writer http.ResponseWriter, request *http.Reques
 		s.adminInternalError(writer, "build public event URL", err)
 		return
 	}
+	var draftResponse *adminDraftResponse
+	if drafts, ok := s.admin.(admincontent.DraftContent); ok {
+		draft, err := drafts.ReadDraft(eventPath)
+		if err != nil {
+			s.adminContentError(writer, "read event draft", err)
+			return
+		}
+		if draft != nil {
+			draftResponse = makeAdminDraftResponse(draft, revision)
+		}
+	}
 	writeAdminJSON(writer, http.StatusOK, adminEventResponse{
 		Path:           eventPath,
 		Archived:       event.Archived,
@@ -400,7 +440,110 @@ func (s *server) adminReadEvent(writer http.ResponseWriter, request *http.Reques
 		YAML:           string(content),
 		Config:         editableConfig,
 		Revision:       revision,
+		Draft:          draftResponse,
 	})
+}
+
+func (s *server) adminSaveDraft(writer http.ResponseWriter, request *http.Request) {
+	drafts, ok := s.admin.(admincontent.DraftContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "drafts are not available for this content store")
+		return
+	}
+	var payload adminDraftRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.BaseRevision == "" {
+		writeAdminError(writer, http.StatusBadRequest, "base_revision is required")
+		return
+	}
+	eventPath := "/" + request.PathValue("slug")
+	current, currentRevision, err := s.admin.ReadEvent(eventPath)
+	if err != nil {
+		s.adminContentError(writer, "resolve event for draft", err)
+		return
+	}
+	content, err := payload.adminYAMLRequest.draftYAML(current)
+	if err != nil {
+		writeAdminError(writer, http.StatusUnprocessableEntity, validationMessage(err))
+		return
+	}
+	draft, err := drafts.SaveDraft(eventPath, payload.BaseRevision, payload.DraftRevision, content)
+	if err != nil {
+		s.adminContentError(writer, "save event draft", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusOK, makeAdminDraftResponse(draft, currentRevision))
+}
+
+func (s *server) adminDeleteDraft(writer http.ResponseWriter, request *http.Request) {
+	drafts, ok := s.admin.(admincontent.DraftContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "drafts are not available for this content store")
+		return
+	}
+	var payload adminDraftRevisionRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Revision == "" {
+		writeAdminError(writer, http.StatusBadRequest, "revision is required")
+		return
+	}
+	if err := drafts.DeleteDraft("/"+request.PathValue("slug"), payload.Revision); err != nil {
+		s.adminContentError(writer, "discard event draft", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusOK, struct {
+		Deleted bool `json:"deleted"`
+	}{Deleted: true})
+}
+
+func (s *server) adminPublishDraft(writer http.ResponseWriter, request *http.Request) {
+	drafts, ok := s.admin.(admincontent.DraftContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "drafts are not available for this content store")
+		return
+	}
+	var payload adminPublishDraftRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Revision == "" || payload.DraftRevision == "" {
+		writeAdminError(writer, http.StatusBadRequest, "revision and draft_revision are required")
+		return
+	}
+	eventPath := "/" + request.PathValue("slug")
+	content, revision, err := drafts.PublishDraft(eventPath, payload.Revision, payload.DraftRevision)
+	if err != nil {
+		s.adminContentError(writer, "publish event draft", err)
+		return
+	}
+	config, err := decodeAdminConfig(content)
+	if err != nil {
+		s.adminContentError(writer, "decode published draft", err)
+		return
+	}
+	event, err := s.adminEvent(eventPath)
+	if err != nil {
+		s.adminContentError(writer, "read published event state", err)
+		return
+	}
+	publicURL, err := s.adminPublicEventURL(request, event)
+	if err != nil {
+		s.adminInternalError(writer, "build published event URL", err)
+		return
+	}
+	writeAdminJSON(writer, http.StatusOK, adminEventResponse{Path: eventPath, Archived: event.Archived, PublicURL: publicURL, CanIncludeLogo: config.Conference.Logo != "", YAML: string(content), Config: &config, Revision: revision})
+}
+
+func makeAdminDraftResponse(draft *admincontent.Draft, publishedRevision string) *adminDraftResponse {
+	response := &adminDraftResponse{YAML: draft.YAML, BaseRevision: draft.BaseRevision, Revision: draft.Revision, UpdatedAt: draft.UpdatedAt.Format(time.RFC3339Nano), Conflict: draft.BaseRevision != publishedRevision}
+	if config, err := menu.DecodeDraft(strings.NewReader(draft.YAML)); err == nil {
+		response.Config = &config
+	}
+	return response
 }
 
 func (s *server) adminEvent(eventPath string) (admincontent.Event, error) {
@@ -523,6 +666,24 @@ func (payload adminYAMLRequest) menuYAML(current []byte) ([]byte, error) {
 	}
 	if err := payload.Config.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %v", admincontent.ErrInvalidMenu, err)
+	}
+	content, err := yaml.Marshal(payload.Config)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode menu YAML: %v", admincontent.ErrInvalidMenu, err)
+	}
+	commentSource := current
+	if payload.SourceYAML != "" {
+		commentSource = []byte(payload.SourceYAML)
+	}
+	return preserveYAMLComments(commentSource, content), nil
+}
+
+func (payload adminYAMLRequest) draftYAML(current []byte) ([]byte, error) {
+	if payload.Config == nil {
+		return []byte(payload.YAML), nil
+	}
+	if payload.YAML != "" {
+		return nil, fmt.Errorf("%w: provide config or yaml, not both", admincontent.ErrInvalidMenu)
 	}
 	content, err := yaml.Marshal(payload.Config)
 	if err != nil {
@@ -664,6 +825,12 @@ func (s *server) adminContentError(writer http.ResponseWriter, operation string,
 		writeAdminError(writer, http.StatusNotFound, "event not found")
 	case errors.Is(err, admincontent.ErrRevisionStale):
 		writeAdminError(writer, http.StatusConflict, "the event changed after it was loaded")
+	case errors.Is(err, admincontent.ErrDraftStale):
+		writeAdminError(writer, http.StatusConflict, "the draft changed after it was loaded")
+	case errors.Is(err, admincontent.ErrDraftConflict):
+		writeAdminError(writer, http.StatusConflict, "the published event changed after this draft was created")
+	case errors.Is(err, admincontent.ErrDraftNotFound):
+		writeAdminError(writer, http.StatusNotFound, "draft not found")
 	case errors.Is(err, admincontent.ErrManifestStale):
 		writeAdminError(writer, http.StatusConflict, "the event list changed after it was loaded")
 	case errors.Is(err, admincontent.ErrEventExists):

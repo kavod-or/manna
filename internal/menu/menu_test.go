@@ -91,6 +91,19 @@ func TestDecodeRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestDecodeDraftAllowsIncompleteKnownContent(t *testing.T) {
+	config, err := DecodeDraft(strings.NewReader("conference:\n  languages: [en]\n"))
+	if err != nil || len(config.Conference.Languages) != 1 {
+		t.Fatalf("DecodeDraft returned %#v, %v", config, err)
+	}
+	if _, err := DecodeDraft(strings.NewReader("unexpected: true\n")); err == nil {
+		t.Fatal("DecodeDraft accepted an unknown field")
+	}
+	if _, err := DecodeDraft(strings.NewReader("conference: [")); err == nil {
+		t.Fatal("DecodeDraft accepted malformed YAML")
+	}
+}
+
 func TestConferenceHidePrices(t *testing.T) {
 	for _, test := range []struct {
 		value string

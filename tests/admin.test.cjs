@@ -48,6 +48,7 @@ function adminContext(replies, promptReplies = []) {
   const elements = {
     'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
     'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
+	'save-draft-button': element(), 'discard-draft-button': element(),
     'reload-button': element(), 'history-button': element(), 'history-panel': element({hidden: true}), 'history-close-button': element(), 'history-list': element(),
     'add-event-button': element(), 'duplicate-event-button': element(), 'archive-event-button': element(), 'archive-event-label': element(), 'delete-event-button': element(), 'public-menu-link': element(),
     'event-state-badge': element({hidden: true}),
@@ -295,15 +296,66 @@ test('visual editor loads structured menu and publishes form changes', async () 
   assert.equal(setup.hook.isDirty(), true);
   assert.equal(setup.elements['publish-button'].disabled, false);
 
-  setup.replies.push(response(200, {path: '/alpha', config: published, yaml: 'name: Updated event\n', revision: 'rev-2'}));
+	setup.replies.push(
+	  response(200, {config: published, yaml: 'name: Updated event\n', revision: 'draft-1', base_revision: 'rev-1'}),
+	  response(200, {path: '/alpha', config: published, yaml: 'name: Updated event\n', revision: 'rev-2'}),
+	);
   await setup.hook.publishMenu();
-  const request = setup.requests.at(-1);
-  assert.equal(request.url, '/admin/api/events/alpha');
-  assert.equal(request.options.method, 'PUT');
-  const payload = JSON.parse(request.options.body);
+	const request = setup.requests.at(-1);
+	assert.equal(request.url, '/admin/api/events/alpha/draft/publish');
+	assert.equal(request.options.method, 'POST');
+	const draftRequest = setup.requests.at(-2);
+	assert.equal(draftRequest.url, '/admin/api/events/alpha/draft');
+	const payload = JSON.parse(draftRequest.options.body);
   assert.equal(payload.config.conference.name.en, 'Updated event');
-  assert.equal(payload.revision, 'rev-1');
+	assert.equal(payload.base_revision, 'rev-1');
   assert.equal(setup.hook.isDirty(), false);
+});
+
+test('drafts persist independently and can be discarded without publishing', async () => {
+	const original = config();
+	const draft = config();
+	draft.conference.name.en = 'Draft event';
+	const setup = adminContext([
+	  response(200, {events: [{path: '/alpha'}]}),
+	  response(200, {path: '/alpha', config: original, yaml: 'published', revision: 'rev-1'}),
+	]);
+	await setup.hook.ready;
+	setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'name', 'en']))}, value: 'Draft event'});
+	setup.replies.push(response(200, {config: draft, yaml: 'draft yaml', revision: 'draft-1', base_revision: 'rev-1', updated_at: '2026-10-11T12:00:00Z'}));
+	assert.equal(await setup.hook.saveDraft(), true);
+	let request = setup.requests.at(-1);
+	assert.equal(request.url, '/admin/api/events/alpha/draft');
+	assert.equal(JSON.parse(request.options.body).base_revision, 'rev-1');
+	assert.equal(setup.hook.isDirty(), false);
+	assert.equal(setup.elements['discard-draft-button'].disabled, false);
+
+	const unload = {preventDefault() { this.prevented = true; }};
+	setup.windowListeners.beforeunload(unload);
+	assert.equal(unload.prevented, undefined);
+
+	setup.replies.push(
+	  response(200, {deleted: true}),
+	  response(200, {path: '/alpha', config: original, yaml: 'published', revision: 'rev-1'}),
+	);
+	await setup.hook.discardDraft();
+	request = setup.requests.at(-2);
+	assert.equal(request.options.method, 'DELETE');
+	assert.equal(setup.hook.state.config.conference.name.en, 'Test');
+	assert.equal(setup.hook.state.draftRevision, '');
+});
+
+test('a draft based on an older published menu stays visible but cannot publish', async () => {
+	const draft = config();
+	draft.conference.name.en = 'Saved draft';
+	const setup = adminContext([
+	  response(200, {events: [{path: '/alpha'}]}),
+	  response(200, {path: '/alpha', config: config(), yaml: 'published', revision: 'rev-2', draft: {config: draft, yaml: 'draft', revision: 'draft-1', base_revision: 'rev-1', conflict: true}}),
+	]);
+	await setup.hook.ready;
+	assert.equal(setup.hook.state.config.conference.name.en, 'Saved draft');
+	assert.equal(setup.elements['publish-button'].disabled, true);
+	assert.match(setup.elements['editor-status'].textContent, /published menu has changed/i);
 });
 
 test('draft preview updates its existing document without reloading the iframe', async () => {
@@ -389,9 +441,12 @@ test('YAML can be edited directly and synchronized back to forms', async () => {
 
   setup.hook.updateField({dataset: {yaml: 'true'}, value: updated});
   assert.equal(setup.hook.isDirty(), true);
-  setup.replies.push(response(200, {path: '/alpha', config: imported, yaml: updated, revision: 'rev-2'}));
+	setup.replies.push(
+	  response(200, {config: imported, yaml: updated, revision: 'draft-1', base_revision: 'rev-1'}),
+	  response(200, {path: '/alpha', config: imported, yaml: updated, revision: 'rev-2'}),
+	);
   await setup.hook.publishMenu();
-  const payload = JSON.parse(setup.requests.at(-1).options.body);
+	const payload = JSON.parse(setup.requests.at(-2).options.body);
   assert.equal(payload.yaml, updated);
   assert.equal(payload.config, undefined);
   assert.equal(setup.hook.isDirty(), false);
@@ -420,11 +475,14 @@ test('invalid stored YAML opens in the advanced editor and can be repaired', asy
 
   setup.hook.updateField({dataset: {yaml: 'true'}, value: repaired});
   assert.equal(setup.elements['publish-button'].disabled, false);
-  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-fixed', yaml: repaired, config: repairedConfig}));
+	setup.replies.push(
+	  response(200, {revision: 'draft-1', base_revision: 'rev-invalid', yaml: repaired, config: repairedConfig}),
+	  response(200, {path: '/alpha', revision: 'rev-fixed', yaml: repaired, config: repairedConfig}),
+	);
   await setup.hook.publishMenu();
-  const payload = JSON.parse(setup.requests.at(-1).options.body);
+	const payload = JSON.parse(setup.requests.at(-2).options.body);
   assert.equal(payload.yaml, repaired);
-  assert.equal(payload.revision, 'rev-invalid');
+	assert.equal(payload.base_revision, 'rev-invalid');
   assert.equal(setup.hook.isDirty(), false);
 });
 
@@ -445,7 +503,10 @@ test('publishing synchronizes YAML and form dirty baselines', async () => {
   setup.replies.push(response(200, {valid: true, yaml: originalYAML, config: original}));
   await setup.hook.switchTab('event');
   setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'name', 'en']))}, value: 'B'});
-  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2', yaml: publishedYAML, config: published}));
+	setup.replies.push(
+	  response(200, {revision: 'draft-1', base_revision: 'rev-1', yaml: publishedYAML, config: published}),
+	  response(200, {path: '/alpha', revision: 'rev-2', yaml: publishedYAML, config: published}),
+	);
   await setup.hook.publishMenu();
   assert.equal(setup.hook.isDirty(), false);
 
@@ -512,9 +573,12 @@ test('publishing forms uses draft YAML as the comment source', async () => {
   await setup.hook.switchTab('event');
   setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['conference', 'location', 'en']))}, value: 'New Hall'});
 
-  setup.replies.push(response(200, {path: '/alpha', revision: 'rev-2', yaml: publishedYAML, config: published}));
+	setup.replies.push(
+	  response(200, {revision: 'draft-1', base_revision: 'rev-1', yaml: publishedYAML, config: published}),
+	  response(200, {path: '/alpha', revision: 'rev-2', yaml: publishedYAML, config: published}),
+	);
   await setup.hook.publishMenu();
-  const payload = JSON.parse(setup.requests.at(-1).options.body);
+	const payload = JSON.parse(setup.requests.at(-2).options.body);
   assert.equal(payload.source_yaml, mixedYAML);
   assert.equal(payload.config.conference.location.en, 'New Hall');
   assert.equal(setup.hook.state.yaml, publishedYAML);

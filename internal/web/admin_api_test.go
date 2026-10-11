@@ -63,6 +63,55 @@ func TestAdminAPIListsAndReadsEvents(t *testing.T) {
 	}
 }
 
+func TestAdminAPISavesLoadsDiscardsAndPublishesDrafts(t *testing.T) {
+	content := newStubAdminContent()
+	handler := newAdminAPITestServer(t, content)
+
+	response := serveAdminAPI(handler, http.MethodPut, "/admin/api/events/alpha/draft", `{"yaml":"conference: [","base_revision":"rev-alpha"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("save draft response = %d %s", response.Code, response.Body.String())
+	}
+	var saved adminDraftResponse
+	decodeTestJSON(t, response, &saved)
+	if saved.YAML != "conference: [" || saved.Revision != "draft-revision" || saved.Config != nil || saved.Conflict {
+		t.Fatalf("saved draft = %#v", saved)
+	}
+
+	response = serveAdminAPI(handler, http.MethodGet, "/admin/api/events/alpha", "")
+	var event adminEventResponse
+	decodeTestJSON(t, response, &event)
+	if response.Code != http.StatusOK || event.Draft == nil || event.Draft.YAML != saved.YAML {
+		t.Fatalf("event draft response = %d %#v", response.Code, event.Draft)
+	}
+
+	response = serveAdminAPI(handler, http.MethodDelete, "/admin/api/events/alpha/draft", `{"revision":"draft-revision"}`)
+	if response.Code != http.StatusOK || content.drafts["/alpha"] != nil {
+		t.Fatalf("discard draft response = %d %s", response.Code, response.Body.String())
+	}
+
+	config := validAdminMenuConfig()
+	encoded, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]string{"yaml": string(encoded), "base_revision": "rev-alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = serveAdminAPI(handler, http.MethodPut, "/admin/api/events/alpha/draft", string(payload))
+	if response.Code != http.StatusOK {
+		t.Fatalf("save valid draft response = %d %s", response.Code, response.Body.String())
+	}
+	response = serveAdminAPI(handler, http.MethodPost, "/admin/api/events/alpha/draft/publish", `{"revision":"rev-alpha","draft_revision":"draft-revision"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("publish draft response = %d %s", response.Code, response.Body.String())
+	}
+	decodeTestJSON(t, response, &event)
+	if event.Revision != "rev-draft-published" || event.Config == nil || content.drafts["/alpha"] != nil {
+		t.Fatalf("published draft = %#v", event)
+	}
+}
+
 func TestAdminAPICreatesAndDeletesEventsWithManifestRevision(t *testing.T) {
 	content := newStubAdminContent()
 	handler := newAdminAPITestServer(t, content)
@@ -436,6 +485,7 @@ type stubAdminContent struct {
 	manifestRevision string
 	history          map[string]string
 	archived         map[string]bool
+	drafts           map[string]*admincontent.Draft
 }
 
 func (content *stubAdminContent) UploadLogo(eventPath, extension string, data []byte) (string, error) {
@@ -454,7 +504,71 @@ func newStubAdminContent() *stubAdminContent {
 		manifestRevision: "manifest-1",
 		history:          make(map[string]string),
 		archived:         make(map[string]bool),
+		drafts:           make(map[string]*admincontent.Draft),
 	}
+}
+
+func validAdminMenuConfig() menu.Config {
+	return menu.Config{
+		Conference: menu.Conference{Languages: []string{"en"}, TimeZone: "Europe/Berlin", Name: menu.Localized{EN: "Event"}, Location: menu.Localized{EN: "Hall"}},
+		Days:       []menu.Day{{Date: "2026-09-28", Services: []menu.Service{{ID: "lunch", Title: menu.Localized{EN: "Lunch"}, Subtitle: menu.Localized{EN: "Food"}, From: "12:00", Until: "13:00"}}}},
+	}
+}
+
+func (content *stubAdminContent) ReadDraft(eventPath string) (*admincontent.Draft, error) {
+	if _, ok := content.files[eventPath]; !ok {
+		return nil, admincontent.ErrEventNotFound
+	}
+	return content.drafts[eventPath], nil
+}
+
+func (content *stubAdminContent) SaveDraft(eventPath, baseRevision, expectedDraftRevision string, yaml []byte) (*admincontent.Draft, error) {
+	if _, ok := content.files[eventPath]; !ok {
+		return nil, admincontent.ErrEventNotFound
+	}
+	existing := content.drafts[eventPath]
+	if existing == nil {
+		if expectedDraftRevision != "" || content.revisions[eventPath] != baseRevision {
+			return nil, admincontent.ErrDraftStale
+		}
+	} else if existing.Revision != expectedDraftRevision || existing.BaseRevision != baseRevision {
+		return nil, admincontent.ErrDraftStale
+	}
+	draft := &admincontent.Draft{YAML: string(yaml), BaseRevision: baseRevision, Revision: "draft-revision", UpdatedAt: time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)}
+	content.drafts[eventPath] = draft
+	return draft, nil
+}
+
+func (content *stubAdminContent) DeleteDraft(eventPath, expectedDraftRevision string) error {
+	draft := content.drafts[eventPath]
+	if draft == nil {
+		return admincontent.ErrDraftNotFound
+	}
+	if draft.Revision != expectedDraftRevision {
+		return admincontent.ErrDraftStale
+	}
+	delete(content.drafts, eventPath)
+	return nil
+}
+
+func (content *stubAdminContent) PublishDraft(eventPath, expectedPublishedRevision, expectedDraftRevision string) ([]byte, string, error) {
+	draft := content.drafts[eventPath]
+	if draft == nil {
+		return nil, "", admincontent.ErrDraftNotFound
+	}
+	if draft.Revision != expectedDraftRevision {
+		return nil, "", admincontent.ErrDraftStale
+	}
+	if draft.BaseRevision != expectedPublishedRevision {
+		return nil, "", admincontent.ErrDraftConflict
+	}
+	if err := content.ValidateMenu([]byte(draft.YAML)); err != nil {
+		return nil, "", err
+	}
+	content.files[eventPath] = draft.YAML
+	content.revisions[eventPath] = "rev-draft-published"
+	delete(content.drafts, eventPath)
+	return []byte(draft.YAML), content.revisions[eventPath], nil
 }
 
 func (content *stubAdminContent) EventHistory(eventPath string) ([]admincontent.Revision, error) {

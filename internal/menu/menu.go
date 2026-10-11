@@ -191,6 +191,19 @@ func (config Config) RegulatoryItems() []RegulatoryItem {
 }
 
 func Decode(reader io.Reader) (Config, error) {
+	config, err := DecodeDraft(reader)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := config.Validate(); err != nil {
+		return Config{}, err
+	}
+	return config, nil
+}
+
+// DecodeDraft strictly decodes one menu document without requiring it to be
+// publishable yet. It lets the editor reopen structurally valid partial work.
+func DecodeDraft(reader io.Reader) (Config, error) {
 	decoder := yaml.NewDecoder(reader)
 	decoder.KnownFields(true)
 
@@ -204,9 +217,6 @@ func Decode(reader io.Reader) (Config, error) {
 			return Config{}, fmt.Errorf("decode trailing menu YAML: %w", err)
 		}
 		return Config{}, fmt.Errorf("menu must contain exactly one YAML document")
-	}
-	if err := config.Validate(); err != nil {
-		return Config{}, err
 	}
 	return config, nil
 }
