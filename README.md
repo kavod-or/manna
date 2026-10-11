@@ -17,7 +17,7 @@ Open [http://localhost:8080/admin/](http://localhost:8080/admin/) and sign in:
 - Username: `admin`
 - Password: `manna-local-development`
 
-Choose **Add event**, enter a URL such as `/team-day`, and build the menu. The editor can preview and publish changes, open the public menu, download its QR code, duplicate an event, and restore earlier published versions.
+Choose **Add event**, enter a URL such as `/team-day`, and build the menu. The editor can preview and publish changes, archive events, open public menus, download QR codes, duplicate events, and restore earlier published versions.
 
 Runtime menus and uploaded branding are stored in the ignored `content` directory. Override the local password when needed:
 
@@ -123,6 +123,8 @@ Without `CONTENT_DIR`, Manna uses bundled read-only content. Without `MANNA_ADMI
 - Published files are replaced atomically and appear without a restart.
 - Revision checks prevent overwriting newer changes.
 - The ten previous published versions are retained for restore.
+- Archiving hides an event and its QR code without deleting its menu, branding, or history. Use **Make public** to restore it.
+- **Remove event** permanently deletes an event and its event-owned files.
 - Invalid external edits do not replace the last valid menu.
 - Event URLs are public but are not listed on the root page.
 

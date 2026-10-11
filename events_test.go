@@ -73,6 +73,27 @@ func TestAcceptNestedYAMLMenuPath(t *testing.T) {
 	}
 }
 
+func TestArchivedEventsAreNotLoadedAsPublicRoutes(t *testing.T) {
+	content := fstest.MapFS{
+		"events.yaml": {Data: []byte("events:\n  - path: /active\n    menu: active.yaml\n  - path: /archived\n    menu: missing.yaml\n    archived: true\n")},
+		"active.yaml": {Data: []byte(testMenu("Active"))},
+	}
+	events, err := loadEventFS(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events["/active"] == nil || events["/archived"] != nil {
+		t.Fatalf("public events = %#v", events)
+	}
+}
+
+func TestEventManifestRejectsUnknownArchiveField(t *testing.T) {
+	manifest := "events:\n  - path: /test\n    menu: test.yaml\n    archive: true\n"
+	if _, err := loadEventEntries(fstest.MapFS{"events.yaml": {Data: []byte(manifest)}}); err == nil {
+		t.Fatal("manifest accepted an unknown archive field")
+	}
+}
+
 func TestContentRootRejectsSymlinkEscape(t *testing.T) {
 	parent := t.TempDir()
 	contentDir := filepath.Join(parent, "content")

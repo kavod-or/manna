@@ -3,7 +3,9 @@
     eventSelect: document.getElementById('event-select'),
     addEvent: document.getElementById('add-event-button'),
     duplicateEvent: document.getElementById('duplicate-event-button'),
+    archiveEvent: document.getElementById('archive-event-button'),
     deleteEvent: document.getElementById('delete-event-button'),
+    eventStateBadge: document.getElementById('event-state-badge'),
     form: document.getElementById('menu-form'),
     tabs: document.getElementById('editor-tabs'),
     status: document.getElementById('editor-status'),
@@ -27,7 +29,7 @@
   };
   if (!elements.form) return;
 
-  const state = {path: '', publicURL: '', revision: '', manifestRevision: '', canManageEvents: false, canUseHistory: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
+  const state = {path: '', archived: false, events: [], publicURL: '', revision: '', manifestRevision: '', canManageEvents: false, canUseHistory: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
   const tabs = [['event', 'Event'], ['permanent', 'Permanent menu'], ['schedule', 'Schedule'], ['regulatory', 'Declarations'], ['yaml', 'YAML']];
   let previewTimer = 0;
   const eventSlug = (eventPath) => encodeURIComponent(eventPath.replace(/^\//, ''));
@@ -65,6 +67,7 @@
     elements.eventSelect.disabled = state.busy || elements.eventSelect.options.length === 0;
     elements.addEvent.disabled = state.busy || !state.canManageEvents || !state.manifestRevision;
     elements.duplicateEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
+    elements.archiveEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
     elements.deleteEvent.disabled = state.busy || !loaded || !state.canManageEvents || !state.manifestRevision;
     elements.validate.disabled = state.busy || !loaded;
     elements.publish.disabled = state.busy || !loaded || !isDirty();
@@ -82,19 +85,24 @@
 
   function setBusy(busy) { state.busy = busy; updateControls(); }
   function updatePublicLink() {
-    const publicURL = state.publicURL || state.path;
+    const publicAvailable = Boolean(state.path && !state.archived);
+    const publicURL = publicAvailable ? (state.publicURL || state.path) : '';
     elements.publicLink.href = publicURL || '#';
-    elements.publicLink.classList[state.path ? 'remove' : 'add']('is-disabled');
-    elements.publicLink.setAttribute('aria-disabled', String(!state.path));
+    elements.publicLink.classList[publicAvailable ? 'remove' : 'add']('is-disabled');
+    elements.publicLink.setAttribute('aria-disabled', String(!publicAvailable));
     const includeLogo = state.canIncludeLogo && elements.qrLogoOption.checked;
-    elements.qrDownload.href = state.path ? `/admin/api/events/${eventSlug(state.path)}/qr.svg${includeLogo ? '?logo=1' : ''}` : '#';
-    elements.qrDownload.classList[state.path ? 'remove' : 'add']('is-disabled');
-    elements.qrDownload.setAttribute('aria-disabled', String(!state.path));
+    elements.qrDownload.href = publicAvailable ? `/admin/api/events/${eventSlug(state.path)}/qr.svg${includeLogo ? '?logo=1' : ''}` : '#';
+    elements.qrDownload.classList[publicAvailable ? 'remove' : 'add']('is-disabled');
+    elements.qrDownload.setAttribute('aria-disabled', String(!publicAvailable));
     elements.qrTarget.hidden = !publicURL;
     elements.qrTargetURL.textContent = publicURL || '';
-    elements.qrLogoControl.hidden = !state.canIncludeLogo;
-    elements.qrLogoOption.disabled = !state.canIncludeLogo;
-    if (!state.canIncludeLogo) elements.qrLogoOption.checked = false;
+    elements.qrLogoControl.hidden = !publicAvailable || !state.canIncludeLogo;
+    elements.qrLogoOption.disabled = !publicAvailable || !state.canIncludeLogo;
+    if (!publicAvailable || !state.canIncludeLogo) elements.qrLogoOption.checked = false;
+
+    elements.archiveEvent.textContent = state.archived ? 'Make public' : 'Archive event';
+    elements.eventStateBadge.hidden = !state.archived;
+    elements.eventStateBadge.textContent = state.archived ? 'Archived' : '';
   }
 
   async function requestJSON(url, options = {}) {
@@ -150,16 +158,17 @@
 
   function writeOptions(body) {
     elements.eventSelect.replaceChildren();
-    for (const event of body.events || []) {
+    state.events = [...(body.events || [])].sort((left, right) => Number(left.archived) - Number(right.archived) || left.path.localeCompare(right.path));
+    for (const event of state.events) {
       const option = document.createElement('option');
       option.value = event.path;
-      option.textContent = event.path;
+      option.textContent = event.archived ? `Archived — ${event.path}` : `Public — ${event.path}`;
       elements.eventSelect.append(option);
     }
   }
 
   function clearEvent() {
-    state.path = ''; state.publicURL = ''; state.revision = ''; state.canIncludeLogo = false; state.config = null; state.saved = '';
+    state.path = ''; state.archived = false; state.publicURL = ''; state.revision = ''; state.canIncludeLogo = false; state.config = null; state.saved = '';
     state.yaml = ''; state.savedYAML = ''; state.previewLogo = null; state.publishedLogo = '';
     elements.historyPanel.hidden = true;
     elements.history.setAttribute('aria-expanded', 'false');
@@ -179,12 +188,12 @@
       state.canManageEvents = Boolean(body.can_manage);
       state.canUseHistory = Boolean(body.can_history);
       writeOptions(body);
-      if (!body.events?.length) {
+      if (!state.events.length) {
         clearEvent();
         setStatus('No events exist yet. Add one to create its menu and public route.', 'warning');
         return;
       }
-      const selected = body.events.some((event) => event.path === preferredPath) ? preferredPath : body.events[0].path;
+      const selected = state.events.some((event) => event.path === preferredPath) ? preferredPath : state.events[0].path;
       elements.eventSelect.value = selected;
       await loadEvent(selected, false);
     } catch (error) { setStatus(error.message || 'Could not load events.', 'error'); }
@@ -246,7 +255,7 @@
     if (isDirty() && !window.confirm('Discard your unpublished changes? Only the published event will be duplicated.')) return;
     const sourcePath = state.path;
     const suggestion = `${sourcePath}-copy`;
-    const entered = window.prompt(`Enter the new public event path. The published version of ${sourcePath} will be copied.`, suggestion);
+    const entered = window.prompt(`Enter the new event path. The saved menu for ${sourcePath} will be copied.`, suggestion);
     if (entered == null) return;
     const targetPath = entered.trim();
     if (!/^\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(targetPath)) {
@@ -257,7 +266,7 @@
       setStatus('Choose a different path for the duplicated event.', 'error');
       return;
     }
-    if (!window.confirm(`Duplicate the published ${sourcePath} event as ${targetPath}?`)) return;
+    if (!window.confirm(`Duplicate ${sourcePath} as ${targetPath}?${state.archived ? ' The copy will also be archived.' : ''}`)) return;
     setBusy(true); setStatus(`Duplicating ${sourcePath} as ${targetPath}…`);
     try {
       const body = await requestJSON(`/admin/api/events/${eventSlug(sourcePath)}/duplicate`, {
@@ -266,9 +275,37 @@
       });
       state.manifestRevision = body.manifest_revision;
       await loadEvents(targetPath);
-      setStatus(`${targetPath} was duplicated from the published ${sourcePath} event.`, 'success');
+      setStatus(`${targetPath} was duplicated from ${sourcePath}.${state.archived ? ' The copy remains archived.' : ''}`, state.archived ? 'warning' : 'success');
     } catch (error) {
       setStatus(error.status === 409 ? 'The event list changed or that path already exists. Reload and try again.' : (error.message || 'Could not duplicate the event.'), error.status === 409 ? 'warning' : 'error');
+    } finally { setBusy(false); }
+  }
+
+  async function setEventArchived() {
+    if (state.busy || !state.path || !state.canManageEvents) return;
+    const archived = !state.archived;
+    const action = archived ? 'archive' : 'make public';
+    const dirtyNote = isDirty() ? ' Your unpublished menu changes will stay in the editor.' : '';
+    if (!window.confirm(`${archived ? 'Archive' : 'Make public'} ${state.path}?${dirtyNote}`)) return;
+    setBusy(true); setStatus(`${archived ? 'Archiving' : 'Making public'} ${state.path}…`);
+    try {
+      const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}/archive`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'},
+        body: JSON.stringify({archived, manifest_revision: state.manifestRevision, event_revision: state.revision}),
+      });
+      state.archived = Boolean(body.archived);
+      state.publicURL = body.public_url || '';
+      state.manifestRevision = body.manifest_revision;
+      const listed = state.events.find((event) => event.path === state.path);
+      if (listed) listed.archived = state.archived;
+      writeOptions({events: state.events});
+      elements.eventSelect.value = state.path;
+      updatePublicLink();
+      const unpublished = isDirty() ? ' Your unpublished menu changes are still in the editor.' : '';
+      setStatus(state.archived ? `${state.path} is archived and no longer publicly available.${unpublished}` : `${state.path} is public again.${unpublished}`, isDirty() ? 'warning' : 'success');
+    } catch (error) {
+      const conflict = error.status === 409;
+      setStatus(conflict ? `The event or event list changed. Reload before trying to ${action} it.` : (error.message || `Could not ${action} the event.`), conflict ? 'warning' : 'error');
     } finally { setBusy(false); }
   }
 
@@ -286,6 +323,7 @@
       const body = await requestJSON(`/admin/api/events/${eventSlug(eventPath)}`);
       if (sequence !== state.loadSequence) return false;
       state.path = body.path;
+      state.archived = Boolean(body.archived);
       state.publicURL = body.public_url || body.path;
       state.canIncludeLogo = Boolean(body.can_include_logo);
       elements.qrLogoOption.checked = false;
@@ -309,7 +347,8 @@
       elements.eventSelect.value = body.path;
       updatePublicLink();
       render();
-      setStatus(body.config ? `${body.path} loaded.` : `${body.path} contains invalid YAML. Repair it here, then check or publish it.`, body.config ? 'success' : 'warning');
+      const loadedStatus = state.archived ? `${body.path} loaded. This event is archived and hidden from guests.` : `${body.path} loaded.`;
+      setStatus(body.config ? loadedStatus : `${body.path} contains invalid YAML. Repair it here, then check or publish it.`, body.config && !state.archived ? 'success' : 'warning');
       return true;
     } catch (error) {
       if (sequence === state.loadSequence) setStatus(error.message || 'Could not load the event.', 'error');
@@ -367,7 +406,10 @@
         body: JSON.stringify({revision: state.revision}),
       });
       state.revision = body.revision;
-      state.publicURL = body.public_url || state.publicURL || state.path;
+      state.archived = Boolean(body.archived);
+      state.publicURL = body.public_url || '';
+      const listed = state.events.find((event) => event.path === state.path);
+      if (listed) listed.archived = state.archived;
       state.yaml = body.yaml || '';
       state.savedYAML = state.yaml;
       applyConfig(body.config);
@@ -378,7 +420,7 @@
       updatePublicLink();
       render();
       await refreshHistorySafely();
-      setStatus(`The version from ${label} is now published.`, 'success');
+      setStatus(state.archived ? `The version from ${label} was restored. The event remains archived.` : `The version from ${label} is now published.`, state.archived ? 'warning' : 'success');
     } catch (error) {
       setStatus(error.status === 409 ? 'The live menu changed after you loaded it. Reload before restoring a version.' : (error.message || 'Could not restore the event.'), error.status === 409 ? 'warning' : 'error');
     } finally { setBusy(false); }
@@ -736,6 +778,10 @@
       const payload = {...draftPayload(), revision: state.revision};
       const body = await requestJSON(`/admin/api/events/${eventSlug(state.path)}`, {method: 'PUT', headers: {'Content-Type': 'application/json', 'X-Manna-Admin': '1'}, body: JSON.stringify(payload)});
       state.revision = body.revision;
+      state.archived = Boolean(body.archived);
+      state.publicURL = body.public_url || '';
+      const listed = state.events.find((event) => event.path === state.path);
+      if (listed) listed.archived = state.archived;
       const publishedFromYAML = isYAML();
       if (body.config) applyConfig(body.config);
       if (typeof body.yaml === 'string') state.yaml = body.yaml;
@@ -747,7 +793,7 @@
       updatePublicLink();
       renderPreview();
       if (!elements.historyPanel.hidden) await refreshHistorySafely();
-      setStatus(`${state.path} was published successfully.`, 'success');
+      setStatus(state.archived ? `${state.path} was saved successfully and remains archived.` : `${state.path} was published successfully.`, 'success');
     } catch (error) {
       setStatus(error.status === 409 ? 'The live menu changed after you loaded it. Reload before publishing again.' : (error.message || 'Could not publish the menu.'), error.status === 409 ? 'warning' : 'error');
     } finally { setBusy(false); }
@@ -839,6 +885,7 @@
   elements.eventSelect.addEventListener('change', () => loadEvent(elements.eventSelect.value));
   elements.addEvent.addEventListener('click', addEvent);
   elements.duplicateEvent.addEventListener('click', duplicateEvent);
+  elements.archiveEvent.addEventListener('click', setEventArchived);
   elements.deleteEvent.addEventListener('click', deleteEvent);
   elements.reload.addEventListener('click', () => loadEvent(state.path));
   elements.history.addEventListener('click', openHistory);
@@ -876,5 +923,5 @@
 
   updatePublicLink();
   const ready = loadEvents();
-  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, duplicateEvent, deleteEvent, openHistory, restoreEvent, addAt, removeAt, updateField, render, flushPreview});
+  if (globalThis.__mannaAdminTest) Object.assign(globalThis.__mannaAdminTest, {ready, state, isDirty, loadEvent, validateMenu, publishMenu, switchTab, uploadLogo, addEvent, duplicateEvent, setEventArchived, deleteEvent, openHistory, restoreEvent, addAt, removeAt, updateField, render, flushPreview});
 })();

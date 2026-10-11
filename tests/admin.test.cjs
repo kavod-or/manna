@@ -49,7 +49,8 @@ function adminContext(replies, promptReplies = []) {
     'event-select': element(), 'menu-form': element(), 'editor-tabs': element(),
     'editor-status': element(), 'validate-button': element(), 'publish-button': element(),
     'reload-button': element(), 'history-button': element(), 'history-panel': element({hidden: true}), 'history-close-button': element(), 'history-list': element(),
-    'add-event-button': element(), 'duplicate-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
+    'add-event-button': element(), 'duplicate-event-button': element(), 'archive-event-button': element(), 'delete-event-button': element(), 'public-menu-link': element(),
+    'event-state-badge': element({hidden: true}),
     'qr-download-link': element(),
     'qr-target': element({hidden: true}), 'qr-target-url': element(),
     'qr-logo-control': element({hidden: true}), 'qr-logo-option': element({checked: false}),
@@ -163,7 +164,7 @@ test('event duplication copies the published event and selects the result', asyn
   assert.equal(request.options.headers['X-Manna-Admin'], '1');
   assert.deepEqual(JSON.parse(request.options.body), {path: '/alpha-copy', revision: 'manifest-1'});
   assert.equal(setup.hook.state.path, '/alpha-copy');
-  assert.match(setup.elements['editor-status'].textContent, /duplicated from the published \/alpha/i);
+  assert.match(setup.elements['editor-status'].textContent, /duplicated from \/alpha/i);
 });
 
 test('revision history lists and restores a previous published menu', async () => {
@@ -222,6 +223,38 @@ test('QR download stays disabled when no event exists', async () => {
   assert.equal(setup.elements['qr-download-link'].classList.contains('is-disabled'), true);
   assert.equal(setup.elements['qr-target'].hidden, true);
   assert.equal(setup.elements['qr-logo-control'].hidden, true);
+});
+
+test('archiving hides public actions while keeping the event editable', async () => {
+  const setup = adminContext([
+    response(200, {events: [{path: '/alpha', archived: false}, {path: '/old', archived: true}], revision: 'manifest-1', can_manage: true}),
+    response(200, {path: '/alpha', public_url: 'https://manna.example/alpha', archived: false, config: config(), yaml: 'alpha', revision: 'rev-alpha'}),
+  ]);
+  await setup.hook.ready;
+  assert.equal(setup.elements['event-select'].options[0].textContent, 'Public — /alpha');
+  assert.equal(setup.elements['event-select'].options[1].textContent, 'Archived — /old');
+
+  setup.replies.push(response(200, {path: '/alpha', archived: true, manifest_revision: 'manifest-2'}));
+  await setup.hook.setEventArchived();
+  let request = setup.requests.at(-1);
+  assert.equal(request.url, '/admin/api/events/alpha/archive');
+  assert.equal(request.options.method, 'PUT');
+  assert.deepEqual(JSON.parse(request.options.body), {archived: true, manifest_revision: 'manifest-1', event_revision: 'rev-alpha'});
+  assert.equal(setup.elements['public-menu-link'].attributes['aria-disabled'], 'true');
+  assert.equal(setup.elements['qr-download-link'].attributes['aria-disabled'], 'true');
+  assert.equal(setup.elements['qr-target'].hidden, true);
+  assert.equal(setup.elements['event-state-badge'].hidden, false);
+  assert.equal(setup.elements['archive-event-button'].textContent, 'Make public');
+  assert.match(setup.elements['editor-status'].textContent, /no longer publicly available/i);
+
+  setup.replies.push(response(200, {path: '/alpha', archived: false, manifest_revision: 'manifest-3', public_url: 'https://manna.example/alpha'}));
+  await setup.hook.setEventArchived();
+  request = setup.requests.at(-1);
+  assert.equal(JSON.parse(request.options.body).archived, false);
+  assert.equal(setup.elements['public-menu-link'].href, 'https://manna.example/alpha');
+  assert.equal(setup.elements['public-menu-link'].attributes['aria-disabled'], 'false');
+  assert.equal(setup.elements['event-state-badge'].hidden, true);
+  assert.equal(setup.elements['archive-event-button'].textContent, 'Archive event');
 });
 
 test('visual editor loads structured menu and publishes form changes', async () => {

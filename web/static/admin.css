@@ -107,6 +107,7 @@ h1 { margin: 0; color: var(--green); font-size: clamp(1.6rem, 4vw, 2.4rem); line
 .qr-logo-control small { font-size: 0.68rem; }
 
 .event-field { display: grid; flex: 1 1 22rem; gap: 0.35rem; color: var(--muted); font-size: 0.82rem; font-weight: 700; }
+.event-state-badge { margin-left: 0.35rem; padding: 0.15rem 0.45rem; border-radius: 999px; color: var(--danger); background: var(--danger-soft); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
 
 select {
   width: 100%;

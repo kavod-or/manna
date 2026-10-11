@@ -21,6 +21,15 @@ type embeddedQRLogo struct {
 
 func (s *server) adminEventQR(writer http.ResponseWriter, request *http.Request) {
 	eventPath := "/" + request.PathValue("slug")
+	event, err := s.adminEvent(eventPath)
+	if err != nil {
+		s.adminContentError(writer, "resolve event for QR code", err)
+		return
+	}
+	if event.Archived {
+		writeAdminError(writer, http.StatusConflict, "archived events do not have a public QR code")
+		return
+	}
 	content, _, err := s.admin.ReadEvent(eventPath)
 	if err != nil {
 		s.adminContentError(writer, "resolve event for QR code", err)

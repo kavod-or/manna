@@ -17,8 +17,9 @@ import (
 )
 
 type eventEntry struct {
-	Path string `yaml:"path"`
-	Menu string `yaml:"menu"`
+	Path     string `yaml:"path"`
+	Menu     string `yaml:"menu"`
+	Archived bool   `yaml:"archived,omitempty"`
 }
 
 type eventRoute struct {
@@ -129,6 +130,9 @@ func loadEventRoutes(content fs.FS, current map[string]eventRoute) (map[string]e
 	}
 	routes := make(map[string]eventRoute, len(entries))
 	for _, entry := range entries {
+		if entry.Archived {
+			continue
+		}
 		if route, ok := current[entry.Path]; ok && route.menuPath == entry.Menu {
 			routes[entry.Path] = route
 			continue

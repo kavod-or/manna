@@ -65,16 +65,16 @@ func newEventAdmin(registry *eventRegistry) *eventAdmin {
 	return &eventAdmin{registry: registry}
 }
 
-func (admin *eventAdmin) Events() ([]string, error) {
-	routes, err := admin.routes()
+func (admin *eventAdmin) Events() ([]admincontent.Event, error) {
+	entries, _, err := admin.manifest()
 	if err != nil {
 		return nil, err
 	}
-	events := make([]string, 0, len(routes))
-	for eventPath := range routes {
-		events = append(events, eventPath)
+	events := make([]admincontent.Event, 0, len(entries))
+	for _, entry := range entries {
+		events = append(events, admincontent.Event{Path: entry.Path, Archived: entry.Archived})
 	}
-	sort.Strings(events)
+	sort.Slice(events, func(left, right int) bool { return events[left].Path < events[right].Path })
 	return events, nil
 }
 
@@ -236,7 +236,7 @@ func (admin *eventAdmin) DuplicateEvent(sourcePath, targetPath, expectedManifest
 		rollbackLogo()
 	}
 
-	entries = append(entries, eventEntry{Path: targetPath, Menu: targetMenuPath})
+	entries = append(entries, eventEntry{Path: targetPath, Menu: targetMenuPath, Archived: source.Archived})
 	updated, err := encodeEventManifest(entries)
 	if err != nil {
 		rollbackFiles()
@@ -244,6 +244,63 @@ func (admin *eventAdmin) DuplicateEvent(sourcePath, targetPath, expectedManifest
 	}
 	if err := writer.writeFileAtomic(eventManifestFile, expectedManifestRevision, updated); err != nil {
 		rollbackFiles()
+		return "", fmt.Errorf("update event manifest: %w", err)
+	}
+	admin.invalidateRegistry()
+	return contentRevision(updated), nil
+}
+
+func (admin *eventAdmin) SetEventArchived(eventPath string, archived bool, expectedManifestRevision, expectedEventRevision string) (string, error) {
+	admin.publishMu.Lock()
+	defer admin.publishMu.Unlock()
+
+	if err := validateEventPath(eventPath); err != nil {
+		return "", fmt.Errorf("%w: %v", admincontent.ErrInvalidEvent, err)
+	}
+	entries, manifest, err := admin.manifest()
+	if err != nil {
+		return "", err
+	}
+	if contentRevision(manifest) != expectedManifestRevision {
+		return "", admincontent.ErrManifestStale
+	}
+	entryIndex := -1
+	for index := range entries {
+		if entries[index].Path == eventPath {
+			entryIndex = index
+			break
+		}
+	}
+	if entryIndex < 0 {
+		return "", admincontent.ErrEventNotFound
+	}
+	if entries[entryIndex].Archived == archived {
+		return contentRevision(manifest), nil
+	}
+	if !archived {
+		content, err := fs.ReadFile(admin.registry.content, entries[entryIndex].Menu)
+		if err != nil {
+			return "", fmt.Errorf("read event before publishing route: %w", err)
+		}
+		if contentRevision(content) != expectedEventRevision {
+			return "", admincontent.ErrRevisionStale
+		}
+		if err := admin.ValidateMenu(content); err != nil {
+			return "", err
+		}
+	}
+	entries[entryIndex].Archived = archived
+	updated, err := encodeEventManifest(entries)
+	if err != nil {
+		return "", err
+	}
+	writer, ok := admin.registry.content.(interface {
+		writeFileAtomic(string, string, []byte) error
+	})
+	if !ok {
+		return "", admincontent.ErrContentReadOnly
+	}
+	if err := writer.writeFileAtomic(eventManifestFile, expectedManifestRevision, updated); err != nil {
 		return "", fmt.Errorf("update event manifest: %w", err)
 	}
 	admin.invalidateRegistry()
@@ -660,28 +717,19 @@ func (admin *eventAdmin) pruneEventHistory(menuPath string) error {
 }
 
 func (admin *eventAdmin) route(eventPath string) (eventRoute, error) {
-	routes, err := admin.routes()
+	if err := validateEventPath(eventPath); err != nil {
+		return eventRoute{}, admincontent.ErrEventNotFound
+	}
+	entries, _, err := admin.manifest()
 	if err != nil {
 		return eventRoute{}, err
 	}
-	route, ok := routes[eventPath]
-	if !ok {
-		return eventRoute{}, admincontent.ErrEventNotFound
+	for _, entry := range entries {
+		if entry.Path == eventPath {
+			return eventRoute{menuPath: entry.Menu}, nil
+		}
 	}
-	return route, nil
-}
-
-func (admin *eventAdmin) routes() (map[string]eventRoute, error) {
-	if _, err := admin.registry.Current(); err != nil {
-		return nil, err
-	}
-	admin.registry.mu.Lock()
-	defer admin.registry.mu.Unlock()
-	routes := make(map[string]eventRoute, len(admin.registry.current))
-	for eventPath, route := range admin.registry.current {
-		routes[eventPath] = route
-	}
-	return routes, nil
+	return eventRoute{}, admincontent.ErrEventNotFound
 }
 
 func contentRevision(content []byte) string {

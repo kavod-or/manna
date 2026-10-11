@@ -25,7 +25,7 @@ func TestEventAdminListsAndReadsExistingEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(events, []string{"/alpha", "/beta"}) {
+	if !slices.Equal(events, []admincontent.Event{{Path: "/alpha"}, {Path: "/beta"}}) {
 		t.Fatalf("events = %#v", events)
 	}
 
@@ -65,7 +65,7 @@ func TestEventAdminUsesCurrentManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(events, []string{"/beta"}) {
+	if !slices.Equal(events, []admincontent.Event{{Path: "/beta"}}) {
 		t.Fatalf("events after manifest update = %#v", events)
 	}
 	if _, _, err := admin.ReadEvent("/alpha"); !errors.Is(err, admincontent.ErrEventNotFound) {
@@ -470,6 +470,125 @@ func TestEventAdminDuplicateRejectsMissingCollisionAndStaleManifest(t *testing.T
 	}
 	if _, err := os.Stat(filepath.Join(contentDir, "copy.yaml")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("rejected duplication wrote a menu: %v", err)
+	}
+}
+
+func TestEventAdminArchivesAndRestoresPublicRouteWithoutChangingContent(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	menuBefore, eventRevision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRevision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archivedRevision, err := admin.SetEventArchived("/alpha", true, manifestRevision, eventRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := admin.registry.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events["/alpha"] != nil || events["/beta"] == nil {
+		t.Fatalf("public events after archive = %#v", events)
+	}
+	adminEvents, err := admin.Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(adminEvents, admincontent.Event{Path: "/alpha", Archived: true}) {
+		t.Fatalf("admin events after archive = %#v", adminEvents)
+	}
+	menuAfter, currentRevision, err := admin.ReadEvent("/alpha")
+	if err != nil || !bytes.Equal(menuAfter, menuBefore) || currentRevision != eventRevision {
+		t.Fatalf("archived menu changed: revision %q, error %v", currentRevision, err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(contentDir, eventManifestFile))
+	if err != nil || !strings.Contains(string(manifest), "archived: true") {
+		t.Fatalf("archived manifest = %q, %v", manifest, err)
+	}
+	idempotentRevision, err := admin.SetEventArchived("/alpha", true, archivedRevision, "sha256:stale-is-irrelevant")
+	if err != nil || idempotentRevision != archivedRevision {
+		t.Fatalf("idempotent archive = %q, %v", idempotentRevision, err)
+	}
+	if _, err := admin.SetEventArchived("/alpha", false, manifestRevision, eventRevision); !errors.Is(err, admincontent.ErrManifestStale) {
+		t.Fatalf("stale manifest unarchive error = %v", err)
+	}
+
+	publicRevision, err := admin.SetEventArchived("/alpha", false, archivedRevision, eventRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publicRevision == archivedRevision {
+		t.Fatal("unarchive did not change the manifest revision")
+	}
+	events, err = admin.registry.Current()
+	if err != nil || events["/alpha"] == nil {
+		t.Fatalf("unarchived event was not public: %#v, %v", events, err)
+	}
+}
+
+func TestEventAdminUnarchiveRejectsStaleOrInvalidMenu(t *testing.T) {
+	admin, contentDir := newTestEventAdmin(t)
+	_, eventRevision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRevision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	archivedRevision, err := admin.SetEventArchived("/alpha", true, manifestRevision, eventRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := []byte("conference: [")
+	if err := os.WriteFile(filepath.Join(contentDir, "alpha.yaml"), invalid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.SetEventArchived("/alpha", false, archivedRevision, eventRevision); !errors.Is(err, admincontent.ErrRevisionStale) {
+		t.Fatalf("stale unarchive error = %v", err)
+	}
+	if _, err := admin.SetEventArchived("/alpha", false, archivedRevision, contentRevision(invalid)); !errors.Is(err, admincontent.ErrInvalidMenu) {
+		t.Fatalf("invalid unarchive error = %v", err)
+	}
+	stored, revision, err := admin.ReadEvent("/alpha")
+	if err != nil || !bytes.Equal(stored, invalid) || revision != contentRevision(invalid) {
+		t.Fatalf("archived invalid menu was not editable: %q, %q, %v", stored, revision, err)
+	}
+	events, err := admin.Events()
+	if err != nil || !slices.Contains(events, admincontent.Event{Path: "/alpha", Archived: true}) {
+		t.Fatalf("failed unarchive changed state: %#v, %v", events, err)
+	}
+}
+
+func TestEventAdminArchivedDuplicateStaysArchived(t *testing.T) {
+	admin, _ := newTestEventAdmin(t)
+	_, eventRevision, err := admin.ReadEvent("/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRevision, err := admin.ManifestRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRevision, err = admin.SetEventArchived("/alpha", true, manifestRevision, eventRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.DuplicateEvent("/alpha", "/alpha-copy", manifestRevision); err != nil {
+		t.Fatal(err)
+	}
+	events, err := admin.Events()
+	if err != nil || !slices.Contains(events, admincontent.Event{Path: "/alpha-copy", Archived: true}) {
+		t.Fatalf("duplicated archived event = %#v, %v", events, err)
+	}
+	public, err := admin.registry.Current()
+	if err != nil || public["/alpha-copy"] != nil {
+		t.Fatalf("archived duplicate became public: %#v, %v", public, err)
 	}
 }
 

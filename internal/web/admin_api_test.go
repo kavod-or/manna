@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -34,9 +35,9 @@ func TestAdminAPIListsAndReadsEvents(t *testing.T) {
 		t.Fatalf("list status = %d: %s", response.Code, response.Body.String())
 	}
 	var list struct {
-		Events    []adminEventSummary `json:"events"`
-		Revision  string              `json:"revision"`
-		CanManage bool                `json:"can_manage"`
+		Events    []admincontent.Event `json:"events"`
+		Revision  string               `json:"revision"`
+		CanManage bool                 `json:"can_manage"`
 	}
 	decodeTestJSON(t, response, &list)
 	if len(list.Events) != 2 || list.Events[0].Path != "/alpha" || list.Events[1].Path != "/beta" {
@@ -120,6 +121,44 @@ func TestAdminAPIDuplicatesPublishedEvent(t *testing.T) {
 	response = serveAdminAPI(handler, http.MethodPost, "/admin/api/events/alpha/duplicate", `{"path":"/copy","revision":"manifest-stale"}`)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("stale duplicate status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAdminAPIArchivesAndUnarchivesEvent(t *testing.T) {
+	content := newStubAdminContent()
+	handler := newAdminAPITestServer(t, content)
+
+	response := serveAdminAPI(handler, http.MethodPut, "/admin/api/events/alpha/archive", `{"archived":true,"manifest_revision":"manifest-1","event_revision":"rev-alpha"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("archive status = %d: %s", response.Code, response.Body.String())
+	}
+	var archived adminEventResponse
+	decodeTestJSON(t, response, &archived)
+	if !archived.Archived || archived.ManifestRevision != "manifest-archived" || archived.PublicURL != "" {
+		t.Fatalf("archive response = %#v", archived)
+	}
+
+	response = serveAdminAPI(handler, http.MethodGet, "/admin/api/events", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"path":"/alpha","archived":true`) {
+		t.Fatalf("archived list response = %d: %s", response.Code, response.Body.String())
+	}
+	response = serveAdminAPI(handler, http.MethodGet, "/admin/api/events/alpha", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("archived read status = %d: %s", response.Code, response.Body.String())
+	}
+	decodeTestJSON(t, response, &archived)
+	if !archived.Archived || archived.PublicURL != "" {
+		t.Fatalf("archived read response = %#v", archived)
+	}
+
+	response = serveAdminAPI(handler, http.MethodPut, "/admin/api/events/alpha/archive", `{"archived":false,"manifest_revision":"manifest-archived","event_revision":"rev-alpha"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unarchive status = %d: %s", response.Code, response.Body.String())
+	}
+	var public adminEventResponse
+	decodeTestJSON(t, response, &public)
+	if public.Archived || public.PublicURL != "https://manna.example/alpha" {
+		t.Fatalf("unarchive response = %#v", public)
 	}
 }
 
@@ -208,6 +247,8 @@ func TestAdminAPIRejectsInvalidRequests(t *testing.T) {
 		{name: "missing revision", method: http.MethodPut, path: "/admin/api/events/alpha", body: `{"yaml":"ok"}`, want: http.StatusBadRequest},
 		{name: "restore missing revision", method: http.MethodPost, path: "/admin/api/events/alpha/history/history-1/restore", body: `{}`, want: http.StatusBadRequest},
 		{name: "restore unknown field", method: http.MethodPost, path: "/admin/api/events/alpha/history/history-1/restore", body: `{"revision":"rev-alpha","extra":true}`, want: http.StatusBadRequest},
+		{name: "archive missing state", method: http.MethodPut, path: "/admin/api/events/alpha/archive", body: `{"manifest_revision":"manifest-1","event_revision":"rev-alpha"}`, want: http.StatusBadRequest},
+		{name: "archive unknown field", method: http.MethodPut, path: "/admin/api/events/alpha/archive", body: `{"archived":true,"manifest_revision":"manifest-1","event_revision":"rev-alpha","extra":true}`, want: http.StatusBadRequest},
 		{name: "oversized body", method: http.MethodPost, path: "/admin/api/events/alpha/validate", body: `{"yaml":"` + strings.Repeat("x", maxAdminRequestSize) + `"}`, want: http.StatusBadRequest},
 		{name: "missing content type", method: http.MethodPost, path: "/admin/api/events/alpha/validate", body: `{"yaml":"ok"}`, contentType: "none", want: http.StatusUnsupportedMediaType},
 		{name: "wrong content type", method: http.MethodPut, path: "/admin/api/events/alpha", body: `{"yaml":"ok","revision":"rev-alpha"}`, contentType: "text/plain", want: http.StatusUnsupportedMediaType},
@@ -394,6 +435,7 @@ type stubAdminContent struct {
 	logoData         []byte
 	manifestRevision string
 	history          map[string]string
+	archived         map[string]bool
 }
 
 func (content *stubAdminContent) UploadLogo(eventPath, extension string, data []byte) (string, error) {
@@ -411,6 +453,7 @@ func newStubAdminContent() *stubAdminContent {
 		revisions:        map[string]string{"/alpha": "rev-alpha", "/beta": "rev-beta"},
 		manifestRevision: "manifest-1",
 		history:          make(map[string]string),
+		archived:         make(map[string]bool),
 	}
 }
 
@@ -479,7 +522,23 @@ func (content *stubAdminContent) DuplicateEvent(sourcePath, targetPath, expected
 	}
 	content.files[targetPath] = source
 	content.revisions[targetPath] = "rev-duplicated"
+	content.archived[targetPath] = content.archived[sourcePath]
 	content.manifestRevision = "manifest-duplicated"
+	return content.manifestRevision, nil
+}
+
+func (content *stubAdminContent) SetEventArchived(eventPath string, archived bool, expectedManifestRevision, expectedEventRevision string) (string, error) {
+	if expectedManifestRevision != content.manifestRevision {
+		return "", admincontent.ErrManifestStale
+	}
+	if _, exists := content.files[eventPath]; !exists {
+		return "", admincontent.ErrEventNotFound
+	}
+	if !archived && content.revisions[eventPath] != expectedEventRevision {
+		return "", admincontent.ErrRevisionStale
+	}
+	content.archived[eventPath] = archived
+	content.manifestRevision = "manifest-archived"
 	return content.manifestRevision, nil
 }
 
@@ -495,15 +554,21 @@ func (content *stubAdminContent) DeleteEvent(eventPath, confirmation, expectedRe
 	}
 	delete(content.files, eventPath)
 	delete(content.revisions, eventPath)
+	delete(content.archived, eventPath)
 	content.manifestRevision = "manifest-3"
 	return content.manifestRevision, nil
 }
 
-func (content *stubAdminContent) Events() ([]string, error) {
+func (content *stubAdminContent) Events() ([]admincontent.Event, error) {
 	if content.listErr != nil {
 		return nil, content.listErr
 	}
-	return []string{"/alpha", "/beta"}, nil
+	events := make([]admincontent.Event, 0, len(content.files))
+	for eventPath := range content.files {
+		events = append(events, admincontent.Event{Path: eventPath, Archived: content.archived[eventPath]})
+	}
+	sort.Slice(events, func(left, right int) bool { return events[left].Path < events[right].Path })
+	return events, nil
 }
 
 func (content *stubAdminContent) ReadEvent(eventPath string) ([]byte, string, error) {

@@ -103,6 +103,17 @@ func TestAdminEventQRRejectsUnknownEventsAndRequiresAuthentication(t *testing.T)
 	}
 }
 
+func TestAdminEventQRRejectsArchivedEvents(t *testing.T) {
+	content := newStubAdminContent()
+	content.archived["/alpha"] = true
+	handler := newAdminAPITestServer(t, content)
+
+	response := serveAdminAPI(handler, http.MethodGet, "/admin/api/events/alpha/qr.svg", "")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "archived events") {
+		t.Fatalf("archived QR response = %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAdminEventQRRejectsInvalidLogoOptions(t *testing.T) {
 	content := newStubAdminContent()
 	encoded, err := yaml.Marshal(validQRTestConfig(""))

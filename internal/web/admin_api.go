@@ -37,16 +37,13 @@ type adminYAMLRequest struct {
 
 type adminEventResponse struct {
 	Path             string       `json:"path"`
+	Archived         bool         `json:"archived"`
 	PublicURL        string       `json:"public_url,omitempty"`
 	CanIncludeLogo   bool         `json:"can_include_logo"`
 	YAML             string       `json:"yaml"`
 	Config           *menu.Config `json:"config,omitempty"`
 	Revision         string       `json:"revision"`
 	ManifestRevision string       `json:"manifest_revision,omitempty"`
-}
-
-type adminEventSummary struct {
-	Path string `json:"path"`
 }
 
 type adminCreateEventRequest struct {
@@ -62,6 +59,12 @@ type adminDuplicateEventRequest struct {
 type adminDeleteEventRequest struct {
 	Revision     string `json:"revision"`
 	Confirmation string `json:"confirmation"`
+}
+
+type adminArchiveEventRequest struct {
+	Archived         *bool  `json:"archived"`
+	ManifestRevision string `json:"manifest_revision"`
+	EventRevision    string `json:"event_revision"`
 }
 
 type adminRestoreEventRequest struct {
@@ -81,6 +84,7 @@ func (s *server) adminHandler() http.Handler {
 	mux.HandleFunc("GET /admin/api/events/{slug}", s.adminReadEvent)
 	mux.HandleFunc("DELETE /admin/api/events/{slug}", s.adminDeleteEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/duplicate", s.adminDuplicateEvent)
+	mux.HandleFunc("PUT /admin/api/events/{slug}/archive", s.adminSetEventArchived)
 	mux.HandleFunc("GET /admin/api/events/{slug}/history", s.adminEventHistory)
 	mux.HandleFunc("POST /admin/api/events/{slug}/history/{historyID}/restore", s.adminRestoreEvent)
 	mux.HandleFunc("POST /admin/api/events/{slug}/validate", s.adminValidateEvent)
@@ -131,13 +135,18 @@ func (s *server) adminRestoreEvent(writer http.ResponseWriter, request *http.Req
 		s.adminContentError(writer, "decode restored event", err)
 		return
 	}
-	publicURL, err := s.publicEventURL(request, eventPath)
+	event, err := s.adminEvent(eventPath)
+	if err != nil {
+		s.adminContentError(writer, "read restored event state", err)
+		return
+	}
+	publicURL, err := s.adminPublicEventURL(request, event)
 	if err != nil {
 		s.adminInternalError(writer, "build restored event URL", err)
 		return
 	}
 	writeAdminJSON(writer, http.StatusOK, adminEventResponse{
-		Path: eventPath, PublicURL: publicURL, CanIncludeLogo: config.Conference.Logo != "", YAML: string(content), Config: &config, Revision: revision,
+		Path: eventPath, Archived: event.Archived, PublicURL: publicURL, CanIncludeLogo: config.Conference.Logo != "", YAML: string(content), Config: &config, Revision: revision,
 	})
 }
 
@@ -171,13 +180,18 @@ func (s *server) adminDuplicateEvent(writer http.ResponseWriter, request *http.R
 		s.adminContentError(writer, "decode duplicated event", err)
 		return
 	}
-	publicURL, err := s.publicEventURL(request, payload.Path)
+	event, err := s.adminEvent(payload.Path)
+	if err != nil {
+		s.adminContentError(writer, "read duplicated event state", err)
+		return
+	}
+	publicURL, err := s.adminPublicEventURL(request, event)
 	if err != nil {
 		s.adminInternalError(writer, "build duplicated event URL", err)
 		return
 	}
 	writeAdminJSON(writer, http.StatusCreated, adminEventResponse{
-		Path: payload.Path, PublicURL: publicURL, CanIncludeLogo: config.Conference.Logo != "", YAML: string(content), Config: &config, Revision: revision, ManifestRevision: manifestRevision,
+		Path: payload.Path, Archived: event.Archived, PublicURL: publicURL, CanIncludeLogo: config.Conference.Logo != "", YAML: string(content), Config: &config, Revision: revision, ManifestRevision: manifestRevision,
 	})
 }
 
@@ -237,14 +251,10 @@ func (s *server) adminUploadLogo(writer http.ResponseWriter, request *http.Reque
 }
 
 func (s *server) adminEvents(writer http.ResponseWriter, _ *http.Request) {
-	paths, err := s.admin.Events()
+	events, err := s.admin.Events()
 	if err != nil {
 		s.adminInternalError(writer, "list events", err)
 		return
-	}
-	events := make([]adminEventSummary, 0, len(paths))
-	for _, eventPath := range paths {
-		events = append(events, adminEventSummary{Path: eventPath})
 	}
 	manager, manageable := s.admin.(admincontent.EventContent)
 	_, canUseHistory := s.admin.(admincontent.HistoryContent)
@@ -257,11 +267,47 @@ func (s *server) adminEvents(writer http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	writeAdminJSON(writer, http.StatusOK, struct {
-		Events     []adminEventSummary `json:"events"`
-		Revision   string              `json:"revision,omitempty"`
-		CanManage  bool                `json:"can_manage"`
-		CanHistory bool                `json:"can_history"`
+		Events     []admincontent.Event `json:"events"`
+		Revision   string               `json:"revision,omitempty"`
+		CanManage  bool                 `json:"can_manage"`
+		CanHistory bool                 `json:"can_history"`
 	}{Events: events, Revision: revision, CanManage: manageable, CanHistory: canUseHistory})
+}
+
+func (s *server) adminSetEventArchived(writer http.ResponseWriter, request *http.Request) {
+	manager, ok := s.admin.(admincontent.EventContent)
+	if !ok {
+		writeAdminError(writer, http.StatusNotImplemented, "event management is not available for this content store")
+		return
+	}
+	var payload adminArchiveEventRequest
+	if !decodeAdminJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Archived == nil || payload.ManifestRevision == "" || payload.EventRevision == "" {
+		writeAdminError(writer, http.StatusBadRequest, "archived, manifest_revision, and event_revision are required")
+		return
+	}
+	eventPath := "/" + request.PathValue("slug")
+	revision, err := manager.SetEventArchived(eventPath, *payload.Archived, payload.ManifestRevision, payload.EventRevision)
+	if err != nil {
+		s.adminContentError(writer, "change event archive state", err)
+		return
+	}
+	publicURL := ""
+	if !*payload.Archived {
+		publicURL, err = s.publicEventURL(request, eventPath)
+		if err != nil {
+			s.adminInternalError(writer, "build unarchived event URL", err)
+			return
+		}
+	}
+	writeAdminJSON(writer, http.StatusOK, struct {
+		Path             string `json:"path"`
+		Archived         bool   `json:"archived"`
+		ManifestRevision string `json:"manifest_revision"`
+		PublicURL        string `json:"public_url,omitempty"`
+	}{Path: eventPath, Archived: *payload.Archived, ManifestRevision: revision, PublicURL: publicURL})
 }
 
 func (s *server) adminCreateEvent(writer http.ResponseWriter, request *http.Request) {
@@ -326,6 +372,11 @@ func (s *server) adminDeleteEvent(writer http.ResponseWriter, request *http.Requ
 
 func (s *server) adminReadEvent(writer http.ResponseWriter, request *http.Request) {
 	eventPath := "/" + request.PathValue("slug")
+	event, err := s.adminEvent(eventPath)
+	if err != nil {
+		s.adminContentError(writer, "read event state", err)
+		return
+	}
 	content, revision, err := s.admin.ReadEvent(eventPath)
 	if err != nil {
 		s.adminContentError(writer, "read event", err)
@@ -336,19 +387,40 @@ func (s *server) adminReadEvent(writer http.ResponseWriter, request *http.Reques
 	if decodeErr == nil {
 		editableConfig = &config
 	}
-	publicURL, err := s.publicEventURL(request, eventPath)
+	publicURL, err := s.adminPublicEventURL(request, event)
 	if err != nil {
 		s.adminInternalError(writer, "build public event URL", err)
 		return
 	}
 	writeAdminJSON(writer, http.StatusOK, adminEventResponse{
 		Path:           eventPath,
+		Archived:       event.Archived,
 		PublicURL:      publicURL,
 		CanIncludeLogo: editableConfig != nil && config.Conference.Logo != "",
 		YAML:           string(content),
 		Config:         editableConfig,
 		Revision:       revision,
 	})
+}
+
+func (s *server) adminEvent(eventPath string) (admincontent.Event, error) {
+	events, err := s.admin.Events()
+	if err != nil {
+		return admincontent.Event{}, err
+	}
+	for _, event := range events {
+		if event.Path == eventPath {
+			return event, nil
+		}
+	}
+	return admincontent.Event{}, admincontent.ErrEventNotFound
+}
+
+func (s *server) adminPublicEventURL(request *http.Request, event admincontent.Event) (string, error) {
+	if event.Archived {
+		return "", nil
+	}
+	return s.publicEventURL(request, event.Path)
 }
 
 func (s *server) adminValidateEvent(writer http.ResponseWriter, request *http.Request) {
@@ -413,8 +485,20 @@ func (s *server) adminPublishEvent(writer http.ResponseWriter, request *http.Req
 	if decodeErr == nil {
 		editableConfig = &config
 	}
+	event, err := s.adminEvent(eventPath)
+	if err != nil {
+		s.adminContentError(writer, "read published event state", err)
+		return
+	}
+	publicURL, err := s.adminPublicEventURL(request, event)
+	if err != nil {
+		s.adminInternalError(writer, "build published event URL", err)
+		return
+	}
 	writeAdminJSON(writer, http.StatusOK, adminEventResponse{
 		Path:           eventPath,
+		Archived:       event.Archived,
+		PublicURL:      publicURL,
 		CanIncludeLogo: editableConfig != nil && config.Conference.Logo != "",
 		YAML:           string(content),
 		Config:         editableConfig,

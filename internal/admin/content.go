@@ -21,10 +21,17 @@ var (
 
 // Content is the narrow boundary between the web admin and menu storage.
 type Content interface {
-	Events() ([]string, error)
+	Events() ([]Event, error)
 	ReadEvent(eventPath string) (content []byte, revision string, err error)
 	ValidateMenu(content []byte) error
 	PublishEvent(eventPath, expectedRevision string, content []byte) (newRevision string, err error)
+}
+
+// Event describes an event available to the admin editor. Archived events stay
+// editable even though they are not exposed through the public guest routes.
+type Event struct {
+	Path     string `json:"path"`
+	Archived bool   `json:"archived"`
 }
 
 // LogoContent is implemented by writable content stores that support event
@@ -40,6 +47,7 @@ type EventContent interface {
 	ManifestRevision() (revision string, err error)
 	CreateEvent(eventPath, expectedManifestRevision string) (newManifestRevision string, err error)
 	DuplicateEvent(sourcePath, targetPath, expectedManifestRevision string) (newManifestRevision string, err error)
+	SetEventArchived(eventPath string, archived bool, expectedManifestRevision, expectedEventRevision string) (newManifestRevision string, err error)
 	DeleteEvent(eventPath, confirmation, expectedManifestRevision string) (newManifestRevision string, err error)
 }
 

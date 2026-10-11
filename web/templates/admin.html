@@ -34,7 +34,7 @@
 
       <div class="editor-toolbar">
         <label class="event-field" for="event-select">
-          <span>Event</span>
+          <span>Event <strong id="event-state-badge" class="event-state-badge" hidden></strong></span>
           <select id="event-select" disabled>
             <option>Loading events…</option>
           </select>
@@ -42,6 +42,7 @@
         <div class="editor-actions">
           <button id="add-event-button" class="button secondary" type="button" disabled>Add event</button>
           <button id="duplicate-event-button" class="button secondary" type="button" disabled>Duplicate event</button>
+          <button id="archive-event-button" class="button secondary" type="button" disabled>Archive event</button>
           <button id="delete-event-button" class="button danger" type="button" disabled>Remove event</button>
           <button id="reload-button" class="button secondary" type="button" disabled>Reload</button>
           <button id="history-button" class="button secondary" type="button" aria-expanded="false" aria-controls="history-panel" disabled>History</button>
