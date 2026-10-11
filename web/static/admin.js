@@ -32,8 +32,8 @@
   };
   if (!elements.form) return;
 
-  const state = {path: '', archived: false, events: [], publicURL: '', revision: '', draftRevision: '', draftBaseRevision: '', draftUpdatedAt: '', draftConflict: false, manifestRevision: '', canManageEvents: false, canUseHistory: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
-  const tabs = [['event', 'Event'], ['permanent', 'Permanent menu'], ['schedule', 'Schedule'], ['regulatory', 'Declarations'], ['yaml', 'YAML']];
+  const state = {path: '', archived: false, events: [], publicURL: '', revision: '', draftRevision: '', draftBaseRevision: '', draftUpdatedAt: '', draftConflict: false, manifestRevision: '', canManageEvents: false, canUseHistory: false, canIncludeLogo: false, config: null, saved: '', yaml: '', savedYAML: '', busy: false, tab: 'event', controlsFilter: 'all', loadSequence: 0, previewLanguage: '', previewDay: 0, previewLogo: null, publishedLogo: ''};
+  const tabs = [['event', 'Event'], ['controls', 'Quick controls'], ['permanent', 'Permanent menu'], ['schedule', 'Schedule'], ['regulatory', 'Declarations'], ['yaml', 'YAML']];
   let previewTimer = 0;
   const eventSlug = (eventPath) => encodeURIComponent(eventPath.replace(/^\//, ''));
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -544,6 +544,72 @@
     return `<section class="form-section"><p class="eyebrow">Always available</p><h2>Permanent menu</h2><p class="section-copy">Coffee, drinks, and snacks shown independently of the daily schedule.</p>${['coffee', 'drinks', 'snacks'].map((group) => `<div class="collection"><h3>${title(group)}</h3>${renderItems(['permanent', group])}</div>`).join('')}</section>`;
   }
 
+  function priceMode(item) {
+    if (item.price != null) return 'single';
+    if (item.price_small != null || item.price_normal != null || item.price_large != null) return 'sizes';
+    return 'none';
+  }
+
+  function controlMatches(item) {
+    if (state.controlsFilter === 'sold-out') return Boolean(item.sold_out);
+    if (state.controlsFilter === 'missing-price') return priceMode(item) === 'none';
+    return true;
+  }
+
+  function controlName(item, fallback) {
+    return item.name?.[state.config.conference.languages[0]] || item.title?.[state.config.conference.languages[0]] || item.id || fallback;
+  }
+
+  function renderControlItem(path, item, fallback) {
+    const mode = priceMode(item);
+    const prices = mode === 'single'
+      ? input('Price', [...path, 'price'], {type: 'price'})
+      : mode === 'sizes'
+        ? ['price_small', 'price_normal', 'price_large'].map((key) => input(title(key), [...path, key], {type: 'price'})).join('')
+        : '<p class="control-no-price">No price</p>';
+    return `<article class="control-row${item.sold_out ? ' is-sold-out' : ''}" data-control-item="${pathKey(path)}">
+      <div class="control-identity"><strong>${esc(controlName(item, fallback))}</strong><small>${esc(item.id || 'No item ID')}</small></div>
+      <label class="availability-control"><input type="checkbox" data-path="${pathKey([...path, 'sold_out'])}" data-type="availability"${item.sold_out ? '' : ' checked'}><span>Available</span></label>
+      <label class="control-mode"><span>Price type</span><select data-action="price-mode" data-path="${pathKey(path)}"><option value="none"${mode === 'none' ? ' selected' : ''}>No price</option><option value="single"${mode === 'single' ? ' selected' : ''}>Single price</option><option value="sizes"${mode === 'sizes' ? ' selected' : ''}>Size prices</option></select></label>
+      <div class="control-prices ${mode === 'sizes' ? 'has-sizes' : ''}">${prices}</div>
+    </article>`;
+  }
+
+  function renderControlItems(path) {
+    const items = (get(path) || []).map((item, index) => ({item, index})).filter(({item}) => controlMatches(item));
+    if (!items.length) return '<p class="control-empty">No matching items.</p>';
+    return `<div class="control-list">${items.map(({item, index}) => renderControlItem([...path, index], item, `Item ${index + 1}`)).join('')}</div>`;
+  }
+
+  function renderControlService(path, service, index) {
+    const matchingItems = (service.items || []).some(controlMatches);
+    if (state.controlsFilter === 'missing-price' && !matchingItems) return '';
+    if (state.controlsFilter === 'sold-out' && !service.sold_out && !matchingItems) return '';
+    return `<section class="control-group"><div class="control-group-heading"><div><p class="eyebrow">Service</p><h3>${esc(controlName(service, `Service ${index + 1}`))}</h3></div><label class="availability-control service-availability"><input type="checkbox" data-path="${pathKey([...path, 'sold_out'])}" data-type="availability"${service.sold_out ? '' : ' checked'}><span>Service available</span></label></div>${renderControlItems([...path, 'items'])}</section>`;
+  }
+
+  function renderControls() {
+    const permanent = ['coffee', 'drinks', 'snacks'].map((group) => {
+      const path = ['permanent', group];
+      const hasMatch = (get(path) || []).some(controlMatches);
+      if (!hasMatch && state.controlsFilter !== 'all') return '';
+      return `<section class="control-group"><div class="control-group-heading"><div><p class="eyebrow">Permanent menu</p><h3>${esc(title(group))}</h3></div></div>${renderControlItems(path)}</section>`;
+    }).join('');
+    const days = state.config.days.map((day, dayIndex) => {
+      const services = (day.services || []).map((service, serviceIndex) => renderControlService(['days', dayIndex, 'services', serviceIndex], service, serviceIndex)).join('');
+      const trucks = (day.food_trucks || []).map((truck, truckIndex) => {
+        const path = ['days', dayIndex, 'food_trucks', truckIndex, 'items'];
+        const hasMatch = (truck.items || []).some(controlMatches);
+        if (!hasMatch && state.controlsFilter !== 'all') return '';
+        return `<section class="control-group"><div class="control-group-heading"><div><p class="eyebrow">Food truck</p><h3>${esc(controlName(truck, `Food truck ${truckIndex + 1}`))}</h3></div></div>${renderControlItems(path)}</section>`;
+      }).join('');
+      if (!services && !trucks) return '';
+      return `<section class="control-day"><h2>${esc(dayLabel(day.date, dayIndex))}</h2>${services}${trucks}</section>`;
+    }).join('');
+    const priceNotice = state.config.conference.hide_prices ? '<p class="control-notice">Prices are currently hidden from guests, but you can still update them here.</p>' : '';
+    return `<section class="form-section controls-section"><div class="section-heading"><div><p class="eyebrow">Operations</p><h2>Quick controls</h2><p class="section-copy">Update availability and prices without opening the full menu details.</p></div><label class="controls-filter"><span>Show</span><select data-controls-filter="true"><option value="all"${state.controlsFilter === 'all' ? ' selected' : ''}>All</option><option value="sold-out"${state.controlsFilter === 'sold-out' ? ' selected' : ''}>Sold out</option><option value="missing-price"${state.controlsFilter === 'missing-price' ? ' selected' : ''}>Missing prices</option></select></label></div>${priceNotice}${permanent}${days || '<p class="control-empty">No matching scheduled items.</p>'}</section>`;
+  }
+
   function renderSchedule() {
     return `<section class="form-section"><div class="section-heading"><div><p class="eyebrow">Schedule</p><h2>Days</h2></div>${addButton(['days'], 'day', 'Add day')}</div><div class="stack">${state.config.days.map((day, index) => renderDay(index, day)).join('')}</div></section>`;
   }
@@ -709,7 +775,7 @@
   }
 
   function renderYAML() {
-    return `<section class="form-section yaml-section"><div class="section-heading"><div><p class="eyebrow">Advanced</p><h2>Direct YAML editor</h2><p class="section-copy">Paste a complete menu here to import it, or copy the current YAML to export it.</p></div><button class="button secondary copy-yaml-button" type="button" data-action="copy-yaml">Copy YAML</button></div><label class="yaml-field"><span class="visually-hidden">Event menu YAML</span><textarea id="yaml-editor" data-yaml="true" spellcheck="false" autocapitalize="off" autocomplete="off">${esc(state.yaml)}</textarea></label><p class="yaml-help"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd> checks the YAML without publishing.</p></section>`;
+    return `<section class="form-section yaml-section"><div class="section-heading"><div><p class="eyebrow">Advanced</p><h2>Direct YAML editor</h2><p class="section-copy">Paste a complete menu here to import it, or copy the current YAML to export it.</p></div><button class="button secondary copy-yaml-button" type="button" data-action="copy-yaml">Copy YAML</button></div><label class="yaml-field"><span class="visually-hidden">Event menu YAML</span><textarea id="yaml-editor" data-yaml="true" spellcheck="false" autocapitalize="off" autocomplete="off">${esc(state.yaml)}</textarea></label><p class="yaml-help"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd> saves the current work as a draft.</p></section>`;
   }
 
   function render() {
@@ -718,7 +784,7 @@
     const scrollY = window.scrollY;
     elements.tabs.hidden = false;
     elements.tabs.innerHTML = tabs.map(([key, label]) => `<button type="button" data-tab="${key}" class="tab${state.tab === key ? ' active' : ''}">${label}</button>`).join('');
-    elements.form.innerHTML = ({event: renderEvent, permanent: renderPermanent, schedule: renderSchedule, regulatory: renderRegulatory, yaml: renderYAML}[state.tab])();
+    elements.form.innerHTML = ({event: renderEvent, controls: renderControls, permanent: renderPermanent, schedule: renderSchedule, regulatory: renderRegulatory, yaml: renderYAML}[state.tab])();
     for (const detail of elements.form.querySelectorAll?.('details[data-detail]') || []) {
       if (openDetails.has(detail.dataset.detail)) detail.open = true;
     }
@@ -766,13 +832,36 @@
       render(); changed();
       return;
     }
+    if (target.dataset.controlsFilter) {
+      state.controlsFilter = target.value;
+      render();
+      return;
+    }
+    if (target.dataset.action === 'price-mode') {
+      const item = get(readPath(target.dataset.path));
+      const previous = item.price ?? item.price_normal ?? item.price_small ?? item.price_large ?? 0;
+      delete item.price;
+      delete item.price_small;
+      delete item.price_normal;
+      delete item.price_large;
+      if (target.value === 'single') item.price = previous;
+      if (target.value === 'sizes') item.price_normal = previous;
+      if (state.controlsFilter === 'missing-price' && target.value !== 'none') state.controlsFilter = 'all';
+      render(); changed();
+      return;
+    }
     if (!target.dataset.path) return;
     const path = readPath(target.dataset.path);
     let value = target.value;
     if (target.dataset.type === 'boolean') value = target.checked;
+    if (target.dataset.type === 'availability') value = !target.checked;
     if (target.dataset.type === 'list') value = value.split(',').map((entry) => entry.trim()).filter(Boolean);
     if (target.dataset.type === 'price') value = value === '' ? undefined : Math.round(Number(value) * 100);
     set(path, value);
+    if (target.dataset.type === 'availability') {
+      render(); changed();
+      return;
+    }
     if (path.join('.') === 'conference.logo' && state.previewLogo?.filename !== value) state.previewLogo = null;
     if (rerenderLanguages && path.join('.') === 'conference.languages') render();
     changed({immediatePreview: path.join('.') === 'conference.logo'});

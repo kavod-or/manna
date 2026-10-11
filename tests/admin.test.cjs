@@ -400,6 +400,42 @@ test('entries and items can be added and removed without YAML editing', async ()
   assert.equal(setup.hook.isDirty(), true);
 });
 
+test('quick controls update availability and prices without editing details', async () => {
+	const menu = config();
+	menu.permanent.drinks.push({id: 'water', sold_out: false, name: {de: 'Wasser', en: 'Water'}, description: {}, variants: [], tags: [], price: 250});
+	menu.days[0].services[0].items.push({id: 'soup', sold_out: false, name: {de: 'Suppe', en: 'Soup'}, description: {}, variants: [], tags: [], price: 500});
+	menu.days[0].food_trucks.push({id: 'truck', name: {de: 'Truck', en: 'Truck'}, description: {}, location: {}, payment: {}, times: [], items: [{id: 'taco', sold_out: false, name: {de: 'Taco', en: 'Taco'}, description: {}, variants: [], tags: []}]});
+	const setup = adminContext([
+	  response(200, {events: [{path: '/alpha'}]}),
+	  response(200, {path: '/alpha', config: menu, yaml: 'menu', revision: 'rev-1'}),
+	]);
+	await setup.hook.ready;
+	await setup.hook.switchTab('controls');
+	assert.match(setup.elements['menu-form'].innerHTML, /Quick controls/);
+	assert.match(setup.elements['menu-form'].innerHTML, /Wasser/);
+	assert.match(setup.elements['menu-form'].innerHTML, /Suppe/);
+	assert.match(setup.elements['menu-form'].innerHTML, /Taco/);
+
+	setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['days', 0, 'services', 0, 'sold_out'])), type: 'availability'}, checked: false});
+	assert.equal(setup.hook.state.config.days[0].services[0].sold_out, true);
+	assert.equal(setup.hook.state.config.days[0].services[0].items[0].sold_out, false);
+	setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['days', 0, 'services', 0, 'items', 0, 'sold_out'])), type: 'availability'}, checked: false});
+	assert.equal(setup.hook.state.config.days[0].services[0].items[0].sold_out, true);
+	assert.match(setup.elements['menu-form'].innerHTML, /control-row is-sold-out/);
+
+	setup.hook.updateField({dataset: {action: 'price-mode', path: encodeURIComponent(JSON.stringify(['permanent', 'drinks', 0]))}, value: 'sizes'});
+	const water = setup.hook.state.config.permanent.drinks[0];
+	assert.equal(water.price, undefined);
+	assert.equal(water.price_normal, 250);
+	setup.hook.updateField({dataset: {path: encodeURIComponent(JSON.stringify(['permanent', 'drinks', 0, 'price_small'])), type: 'price'}, value: '3.25'});
+	assert.equal(water.price_small, 325);
+	assert.equal(setup.hook.isDirty(), true);
+
+	setup.hook.updateField({dataset: {controlsFilter: 'true'}, value: 'missing-price'});
+	assert.doesNotMatch(setup.elements['menu-form'].innerHTML, /Suppe/);
+	assert.match(setup.elements['menu-form'].innerHTML, /Taco/);
+});
+
 test('validation and conflicts preserve unpublished form data', async () => {
   const setup = adminContext([
     response(200, {events: [{path: '/alpha'}]}),

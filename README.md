@@ -17,7 +17,7 @@ Open [http://localhost:8080/admin/](http://localhost:8080/admin/) and sign in:
 - Username: `admin`
 - Password: `manna-local-development`
 
-Choose **Add event**, enter a URL such as `/team-day`, and build the menu. The editor can save private drafts, preview and publish changes, archive events, download QR codes, duplicate events, and restore earlier published versions.
+Choose **Add event**, enter a URL such as `/team-day`, and build the menu. The editor can save private drafts, quickly adjust availability and prices, preview and publish changes, archive events, download QR codes, duplicate events, and restore earlier published versions.
 
 Runtime menus and uploaded branding are stored in the ignored `content` directory. Override the local password when needed:
 
